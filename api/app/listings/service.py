@@ -1,6 +1,7 @@
 import base64
 import json
 import queue
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -10,11 +11,12 @@ from sqlalchemy.orm import Session
 from app.auth.service import _load_live_session
 from app.core.clock import utcnow
 from app.core.db import session_scope
+from app.core.request_ctx import current_authorization
 from app.events.models import Event
 from app.events.service import add_event
 from app.jobs.models import Job
 from app.listings.attrs import validate_attrs
-from app.listings.models import Listing
+from app.listings.models import Comment, Listing
 from app.listings.normalize import (
     ACTIVE,
     ADDRESS_PRECISION,
@@ -29,21 +31,52 @@ from app.listings.normalize import (
 )
 from app.listings.presentable import presentable
 from app.listings.stream import hub
-from app.tenancy.models import HuntMember
+from app.tenancy.models import Hunt, HuntMember
 from app.tenancy.service import require_hunt
 
 Error = str
 SORTS = {"hunt_score", "predicted", "combined", "newest", "price"}
 
 
-def _user(db: Session, token: str | None, ip: str) -> tuple[str, bool] | None:
+@dataclass
+class Actor:
+    kind: str
+    id: str
+    is_admin: bool
+    hunt_id: str | None = None
+    scopes: frozenset[str] = frozenset()
+
+
+def _actor(
+    db: Session, token: str | None, ip: str, authorization: str | None = None
+) -> Actor | None:
+    header = authorization if authorization is not None else current_authorization()
+    if header:
+        from app.agents.auth import actor_from_bearer
+
+        return actor_from_bearer(db, header, ip)
     if not token:
         return None
     found = _load_live_session(db, token, ip)
     if found is None:
         return None
     user, _row = found
-    return user.id, user.is_admin
+    return Actor(kind="user", id=user.id, is_admin=user.is_admin)
+
+
+def _open_hunt(db: Session, actor: Actor, hunt_id: str, role: str, scope: str) -> Hunt | Error:
+    if actor.kind == "agent":
+        if actor.hunt_id != hunt_id:
+            return "missing"
+        if scope not in actor.scopes:
+            return "forbidden"
+        hunt = db.get(Hunt, hunt_id)
+        return hunt if hunt is not None else "missing"
+    access = require_hunt(db, actor.id, hunt_id, role)
+    if isinstance(access, str):
+        return access
+    hunt, _member = access
+    return hunt
 
 
 def _public(row: Listing) -> dict[str, Any]:
@@ -115,6 +148,20 @@ def _detail(db: Session, row: Listing) -> dict[str, Any]:
             "at": event.at.isoformat(),
         }
         for event in events
+    ]
+    notes = db.scalars(
+        select(Comment).where(Comment.listing_id == row.id).order_by(Comment.created_at.asc())
+    ).all()
+    body["comments"] = [
+        {
+            "id": note.id,
+            "text": note.text,
+            "author_type": "agent" if note.author_agent_id else "user",
+            "author_user_id": note.author_user_id,
+            "author_agent_id": note.author_agent_id,
+            "created_at": note.created_at.isoformat(),
+        }
+        for note in notes
     ]
     return body
 
@@ -243,13 +290,13 @@ class _RowError(Exception):
 
 def _write_one(
     db: Session,
-    user_id: str,
+    actor: Actor,
     hunt_id: str,
     body: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | Error:
     try:
         with db.begin_nested():
-            outcome = _write_saved(db, user_id, hunt_id, body)
+            outcome = _write_saved(db, actor, hunt_id, body)
             if isinstance(outcome, str):
                 raise _RowError(outcome)
             return outcome
@@ -259,14 +306,13 @@ def _write_one(
 
 def _write_saved(
     db: Session,
-    user_id: str,
+    actor: Actor,
     hunt_id: str,
     body: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | Error:
-    access = require_hunt(db, user_id, hunt_id, "owner")
-    if isinstance(access, str):
-        return access
-    hunt, _member = access
+    hunt = _open_hunt(db, actor, hunt_id, "owner", "listings:write")
+    if isinstance(hunt, str):
+        return hunt
     url = normalize_url(body.get("url"))
     if url is None:
         return "invalid"
@@ -298,6 +344,8 @@ def _write_saved(
         row.demoted = bool(row.demoted)
         row.attrs = attrs
         row.source_snapshot = {"title": row.title, "price": row.price}
+        if actor.kind == "agent":
+            row.created_by_agent = actor.id
         row.is_presentable = presentable(hunt, row)
         db.add(row)
         db.flush()
@@ -331,8 +379,8 @@ def _write_saved(
             add_event(
                 db,
                 type="listing.price",
-                actor_type="user",
-                actor_id=user_id,
+                actor_type=actor.kind,
+                actor_id=actor.id,
                 hunt_id=hunt.id,
                 listing_id=row.id,
                 payload={"from": previous_price, "to": row.price},
@@ -350,8 +398,8 @@ def _write_saved(
     add_event(
         db,
         type=event_type,
-        actor_type="user",
-        actor_id=user_id,
+        actor_type=actor.kind,
+        actor_id=actor.id,
         hunt_id=hunt.id,
         listing_id=row.id,
         payload={"short_id": row.short_id, "status": row.status},
@@ -369,12 +417,11 @@ def _write_saved(
 def upsert_listing(token: str | None, ip: str, body: dict[str, Any]) -> dict[str, Any] | Error:
     published: dict[str, Any] | None = None
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
-        hunt_id = str(body.get("hunt_id", ""))
-        result = _write_one(db, user_id, hunt_id, body)
+        hunt_id = str(body.get("hunt_id") or actor.hunt_id or "")
+        result = _write_one(db, actor, hunt_id, body)
         if isinstance(result, str):
             return result
         payload, published = result
@@ -384,25 +431,24 @@ def upsert_listing(token: str | None, ip: str, body: dict[str, Any]) -> dict[str
 
 def bulk_listings(token: str | None, ip: str, body: dict[str, Any]) -> dict[str, Any] | Error:
     rows = body.get("listings")
-    hunt_id = str(body.get("hunt_id", ""))
     if not isinstance(rows, list) or len(rows) > 200:
         return "invalid"
     published: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
-        access = require_hunt(db, user_id, hunt_id, "owner")
-        if isinstance(access, str):
-            return access
+        hunt_id = str(body.get("hunt_id") or actor.hunt_id or "")
+        opened = _open_hunt(db, actor, hunt_id, "owner", "listings:write")
+        if isinstance(opened, str):
+            return opened
         for index, item in enumerate(rows):
             if not isinstance(item, dict):
                 results.append({"index": index, "ok": False, "error": "invalid"})
                 continue
             item = {**item, "hunt_id": hunt_id}
-            outcome = _write_one(db, user_id, hunt_id, item)
+            outcome = _write_one(db, actor, hunt_id, item)
             if isinstance(outcome, str):
                 results.append({"index": index, "ok": False, "error": outcome})
                 continue
@@ -428,17 +474,15 @@ def patch_listing(
 ) -> dict[str, Any] | Error:
     published: dict[str, Any] | None = None
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
         row = db.get(Listing, listing_id)
         if row is None:
             return "missing"
-        access = require_hunt(db, user_id, row.hunt_id, "owner")
-        if isinstance(access, str):
-            return access
-        hunt, _member = access
+        hunt = _open_hunt(db, actor, row.hunt_id, "owner", "listings:write")
+        if isinstance(hunt, str):
+            return hunt
         previous = row.price
         if "url" in body:
             url = normalize_url(body["url"])
@@ -467,8 +511,8 @@ def patch_listing(
             add_event(
                 db,
                 type="listing.price",
-                actor_type="user",
-                actor_id=user_id,
+                actor_type=actor.kind,
+                actor_id=actor.id,
                 hunt_id=hunt.id,
                 listing_id=row.id,
                 payload={"from": previous, "to": row.price},
@@ -481,8 +525,8 @@ def patch_listing(
         add_event(
             db,
             type="listing.updated",
-            actor_type="user",
-            actor_id=user_id,
+            actor_type=actor.kind,
+            actor_id=actor.id,
             hunt_id=hunt.id,
             listing_id=row.id,
             payload={"status": row.status},
@@ -504,17 +548,15 @@ def set_status(
 ) -> dict[str, Any] | Error:
     published: dict[str, Any] | None = None
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
         row = db.get(Listing, listing_id)
         if row is None:
             return "missing"
-        access = require_hunt(db, user_id, row.hunt_id, "owner")
-        if isinstance(access, str):
-            return access
-        hunt, _member = access
+        hunt = _open_hunt(db, actor, row.hunt_id, "owner", "listings:write")
+        if isinstance(hunt, str):
+            return hunt
         if _apply_status(row, status, reason):
             return "invalid"
         row.updated_at = utcnow()
@@ -522,8 +564,8 @@ def set_status(
         add_event(
             db,
             type="listing.status",
-            actor_type="user",
-            actor_id=user_id,
+            actor_type=actor.kind,
+            actor_id=actor.id,
             hunt_id=hunt.id,
             listing_id=row.id,
             payload={"status": row.status, "reason": reason},
@@ -545,25 +587,23 @@ def delete_listing(
 ) -> dict[str, Any] | Error:
     published: dict[str, Any] | None = None
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, is_admin = actor
         row = db.get(Listing, listing_id)
         if row is None:
             return "missing"
-        access = require_hunt(db, user_id, row.hunt_id, "owner")
-        if isinstance(access, str):
-            return access
-        hunt, _member = access
+        hunt = _open_hunt(db, actor, row.hunt_id, "owner", "listings:write")
+        if isinstance(hunt, str):
+            return hunt
         if hard:
-            if not is_admin:
+            if actor.kind != "user" or not actor.is_admin:
                 return "forbidden"
             add_event(
                 db,
                 type="listing.hard_deleted",
-                actor_type="user",
-                actor_id=user_id,
+                actor_type=actor.kind,
+                actor_id=actor.id,
                 hunt_id=hunt.id,
                 listing_id=row.id,
                 payload={"short_id": row.short_id, "hard": True},
@@ -585,8 +625,8 @@ def delete_listing(
         add_event(
             db,
             type="listing.status",
-            actor_type="user",
-            actor_id=user_id,
+            actor_type=actor.kind,
+            actor_id=actor.id,
             hunt_id=hunt.id,
             listing_id=row.id,
             payload={"status": "dead", "reason": "deleted by agent"},
@@ -605,16 +645,15 @@ def delete_listing(
 
 def mark_checked(token: str | None, ip: str, listing_id: str) -> dict[str, Any] | Error:
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
         row = db.get(Listing, listing_id)
         if row is None:
             return "missing"
-        access = require_hunt(db, user_id, row.hunt_id, "owner")
-        if isinstance(access, str):
-            return access
+        opened = _open_hunt(db, actor, row.hunt_id, "owner", "listings:write")
+        if isinstance(opened, str):
+            return opened
         now = utcnow()
         row.last_seen = now
         row.availability_checked_at = now
@@ -622,8 +661,8 @@ def mark_checked(token: str | None, ip: str, listing_id: str) -> dict[str, Any] 
         add_event(
             db,
             type="listing.checked",
-            actor_type="user",
-            actor_id=user_id,
+            actor_type=actor.kind,
+            actor_id=actor.id,
             hunt_id=row.hunt_id,
             listing_id=row.id,
             payload={},
@@ -656,14 +695,13 @@ def list_listings(
     token: str | None, ip: str, query: dict[str, str]
 ) -> dict[str, Any] | Error:
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
-        hunt_id = query.get("hunt_id", "")
-        access = require_hunt(db, user_id, hunt_id, "viewer")
-        if isinstance(access, str):
-            return access
+        hunt_id = query.get("hunt_id") or actor.hunt_id or ""
+        opened = _open_hunt(db, actor, hunt_id, "viewer", "listings:read")
+        if isinstance(opened, str):
+            return opened
         sort = query.get("sort", "newest")
         if sort not in SORTS:
             return "invalid"
@@ -731,14 +769,16 @@ def get_listing(
     token: str | None, ip: str, ref: str, hunt_id: str | None
 ) -> dict[str, Any] | Error:
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return "unauthenticated"
-        user_id, _admin = actor
         short = ref[1:] if ref.startswith("#") else ref
         row: Listing | None
         if short.isdigit():
-            member_hunts = select(HuntMember.hunt_id).where(HuntMember.user_id == user_id)
+            if actor.kind == "agent" and actor.hunt_id:
+                member_hunts = select(Hunt.id).where(Hunt.id == actor.hunt_id)
+            else:
+                member_hunts = select(HuntMember.hunt_id).where(HuntMember.user_id == actor.id)
             stmt = select(Listing).where(
                 Listing.short_id == int(short), Listing.hunt_id.in_(member_hunts)
             )
@@ -750,19 +790,67 @@ def get_listing(
             row = db.get(Listing, ref)
         if row is None:
             return "missing"
-        access = require_hunt(db, user_id, row.hunt_id, "viewer")
-        if isinstance(access, str):
-            return access
+        opened = _open_hunt(db, actor, row.hunt_id, "viewer", "listings:read")
+        if isinstance(opened, str):
+            return opened
         return _detail(db, row)
+
+
+def add_comment(
+    token: str | None, ip: str, listing_id: str, text: str
+) -> dict[str, Any] | Error:
+    cleaned = text.strip()
+    if not cleaned or len(cleaned) > 2000:
+        return "invalid"
+    with session_scope() as db:
+        actor = _actor(db, token, ip)
+        if actor is None:
+            return "unauthenticated"
+        row = db.get(Listing, listing_id)
+        if row is None:
+            return "missing"
+        if actor.kind == "agent":
+            if actor.hunt_id != row.hunt_id:
+                return "missing"
+        else:
+            opened = _open_hunt(db, actor, row.hunt_id, "viewer", "listings:read")
+            if isinstance(opened, str):
+                return opened
+        note = Comment(
+            listing_id=row.id,
+            author_user_id=actor.id if actor.kind == "user" else None,
+            author_agent_id=actor.id if actor.kind == "agent" else None,
+            text=cleaned,
+        )
+        db.add(note)
+        db.flush()
+        add_event(
+            db,
+            type="listing.comment",
+            actor_type=actor.kind,
+            actor_id=actor.id,
+            hunt_id=row.hunt_id,
+            listing_id=row.id,
+            payload={"comment_id": note.id},
+        )
+        return {
+            "id": note.id,
+            "text": note.text,
+            "author_type": actor.kind,
+            "author_user_id": note.author_user_id,
+            "author_agent_id": note.author_agent_id,
+            "created_at": note.created_at.isoformat(),
+        }
 
 
 def member_hunt_ids(token: str | None, ip: str) -> set[str] | None:
     with session_scope() as db:
-        actor = _user(db, token, ip)
+        actor = _actor(db, token, ip)
         if actor is None:
             return None
-        user_id, _admin = actor
-        rows = db.scalars(select(HuntMember.hunt_id).where(HuntMember.user_id == user_id)).all()
+        if actor.kind == "agent" and actor.hunt_id:
+            return {actor.hunt_id}
+        rows = db.scalars(select(HuntMember.hunt_id).where(HuntMember.user_id == actor.id)).all()
         return set(rows)
 
 

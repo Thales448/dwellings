@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.clock import as_utc, utcnow
 from app.core.config import get_settings
+from app.core.request_ctx import reset_authorization, set_authorization
 
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -41,6 +42,8 @@ def csrf_ok(request: Request) -> bool:
 
 
 def needs_csrf(request: Request) -> bool:
+    if request.url.path == "/api/v1/agents/pair":
+        return False
     if request.method not in UNSAFE or not request.url.path.startswith("/api/"):
         return False
     settings = get_settings()
@@ -110,8 +113,12 @@ def set_csrf_cookie(response: Response, token: str) -> None:
 
 class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if needs_csrf(request) and not csrf_ok(request):
-            return JSONResponse({"detail": "csrf check failed"}, status_code=403)
-        response = await call_next(request)
-        apply_security_headers(response)
-        return response
+        token = set_authorization(request.headers.get("authorization"))
+        try:
+            if needs_csrf(request) and not csrf_ok(request):
+                return JSONResponse({"detail": "csrf check failed"}, status_code=403)
+            response = await call_next(request)
+            apply_security_headers(response)
+            return response
+        finally:
+            reset_authorization(token)

@@ -1,25 +1,38 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.agents.routes import router as agent_router
 from app.auth.passkey_routes import router as passkey_router
 from app.auth.routes import router as auth_router
 from app.core.config import get_settings
 from app.core.health import health_payload
 from app.core.security import SecurityMiddleware
 from app.listings.routes import router as listings_router
+from app.mcp_http import http_app, server
 from app.tenancy.routes import router as tenancy_router
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title="Dwellings")
+    mcp = http_app(settings.public_url)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        async with server.session_manager.run():
+            yield
+
+    app = FastAPI(title="Dwellings", lifespan=lifespan)
     app.add_middleware(SecurityMiddleware)
     app.include_router(auth_router)
     app.include_router(passkey_router)
     app.include_router(tenancy_router)
     app.include_router(listings_router)
+    app.include_router(agent_router)
+    app.router.routes.extend(mcp.routes)
 
     @app.get("/api/v1/health")
     def health() -> JSONResponse:

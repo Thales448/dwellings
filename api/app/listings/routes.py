@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from app.core.config import get_settings
 from app.core.security import client_ip
 from app.listings.service import (
+    add_comment,
     bulk_listings,
     delete_listing,
     get_listing,
@@ -44,6 +45,10 @@ class StatusIn(BaseModel):
     status: str
     reason: str | None = None
     demotion_reason: str | None = None
+
+
+class CommentIn(BaseModel):
+    text: str
 
 
 def _token(request: Request) -> str | None:
@@ -128,6 +133,14 @@ def checked(listing_id: str, request: Request) -> JSONResponse:
     if isinstance(result, str):
         return _access(result)
     return JSONResponse(result)
+
+
+@router.post("/listings/{listing_id}/comments", response_model=None)
+def comment(listing_id: str, body: CommentIn, request: Request) -> JSONResponse:
+    result = add_comment(_token(request), client_ip(request), listing_id, body.text)
+    if isinstance(result, str):
+        return _access(result)
+    return JSONResponse(result, status_code=201)
 
 
 @router.delete("/listings/{listing_id}", response_model=None)
