@@ -1,11 +1,41 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import AuthSplit from '$lib/components/AuthSplit.svelte';
 	import { api } from '$lib/api';
+	import { credentialToJSON, requestOptions } from '$lib/auth';
 
 	let email = $state('');
 	let password = $state('');
 	let trust = $state(false);
 	let error = $state('');
+
+	onMount(() => {
+		void signInWithPasskey('conditional');
+	});
+
+	async function signInWithPasskey(mediation: CredentialMediationRequirement) {
+		error = '';
+		try {
+			const issued = await api('/api/v1/auth/passkey/options', { method: 'POST', body: {} });
+			if (!issued.ok) return;
+			const payload = (await issued.json()) as {
+				challenge_id: string;
+				options: Parameters<typeof requestOptions>[0];
+			};
+			const credential = await navigator.credentials.get({
+				mediation,
+				publicKey: requestOptions(payload.options)
+			});
+			if (!credential) return;
+			const verified = await api('/api/v1/auth/passkey/verify', {
+				method: 'POST',
+				body: { challenge_id: payload.challenge_id, credential: credentialToJSON(credential) }
+			});
+			if (verified.ok) window.location.href = '/';
+		} catch {
+			if (mediation !== 'conditional') error = 'Passkey sign-in was cancelled.';
+		}
+	}
 
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
@@ -30,7 +60,9 @@
 <AuthSplit>
 	<p class="wordmark">Dwellings</p>
 	<h1>Sign in</h1>
-	<button class="btn primary" type="button" disabled>Sign in with a passkey</button>
+	<button class="btn primary" type="button" onclick={() => signInWithPasskey('required')}>
+		Sign in with a passkey
+	</button>
 	<form onsubmit={submit}>
 		<label>
 			Email

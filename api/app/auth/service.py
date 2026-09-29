@@ -356,6 +356,35 @@ def revoke_session(
         return "ok"
 
 
+def session_is_recent(row: SessionRow) -> bool:
+    return as_utc(row.reauthenticated_at) >= utcnow() - STEP_UP
+
+
+def revoke_all_sessions(token: str, ip: str) -> bool:
+    with session_scope() as db:
+        found = _load_live_session(db, token, ip)
+        if found is None:
+            return False
+        user, _current = found
+        rows = db.scalars(
+            select(SessionRow).where(
+                SessionRow.user_id == user.id,
+                SessionRow.revoked_at.is_(None),
+            )
+        ).all()
+        now = utcnow()
+        for row in rows:
+            row.revoked_at = now
+        add_event(
+            db,
+            type="auth.sessions_revoked_all",
+            actor_type="user",
+            actor_id=user.id,
+            payload={"count": len(rows)},
+        )
+        return True
+
+
 def revoke_other_sessions(token: str, ip: str) -> bool:
     with session_scope() as db:
         found = _load_live_session(db, token, ip)

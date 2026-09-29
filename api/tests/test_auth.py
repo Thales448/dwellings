@@ -47,6 +47,9 @@ class Client:
     def delete(self, path: str) -> TestClient:
         return self.http.delete(path, headers=self._csrf_headers())  # type: ignore[return-value]
 
+    def patch(self, path: str, body: dict[str, object]) -> TestClient:
+        return self.http.patch(path, json=body, headers=self._csrf_headers())  # type: ignore[return-value]
+
 
 @pytest.fixture(scope="module")
 def admin_account() -> None:
