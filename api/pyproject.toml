@@ -5,6 +5,7 @@ description = "Dwellings — multi-tenant listing hunts"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14",
+  "argon2-cffi>=23.1",
   "fastapi>=0.115",
   "pydantic-settings>=2.6",
   "sqlalchemy>=2.0",

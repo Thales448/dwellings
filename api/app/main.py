@@ -3,13 +3,17 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.auth.routes import router as auth_router
 from app.core.config import get_settings
 from app.core.health import health_payload
+from app.core.security import SecurityMiddleware
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="Dwellings")
+    app.add_middleware(SecurityMiddleware)
+    app.include_router(auth_router)
 
     @app.get("/api/v1/health")
     def health() -> JSONResponse:

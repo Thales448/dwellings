@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
@@ -66,6 +67,7 @@ def get_session_factory() -> sessionmaker[Session]:
     return _session_factory
 
 
+@contextmanager
 def session_scope() -> Iterator[Session]:
     factory = get_session_factory()
     session = factory()

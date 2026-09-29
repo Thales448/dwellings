@@ -32,3 +32,9 @@ docker compose up --build
 ```
 
 Passkeys and the `__Host-dwl` session cookie require HTTPS on `dwellings.rtech.cloud`. Local HTTP is enough for `/api/v1/health`.
+
+On an empty database, open `/setup?token=…` with `ADMIN_EMAIL` and `ADMIN_BOOTSTRAP_TOKEN` from the environment. After that, new people join by invite. A password reset link is printed inside the container:
+
+```bash
+python -m app.cli admin reset-link you@example.com
+```
