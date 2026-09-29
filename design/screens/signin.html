@@ -1,0 +1,43 @@
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+
+
+</helmet>
+<div style="width: 1440px; height: 900px; display: grid; grid-template-columns: minmax(0, 1fr) 560px; background: #0F0E0C; color: #F3EFE7; font-family: 'Instrument Sans', system-ui, sans-serif">
+<div style="position: relative; overflow: hidden; background: #3A3129">
+<svg sc-camel-view-box="0 0 880 900" width="100%" height="100%" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block">
+<polygon points="480,140 700,140 880,900 300,900" style="fill: rgba(255,236,200,0.07)"></polygon>
+<rect x="480" y="140" width="220" height="320" rx="4" style="fill: rgba(255,236,200,0.10); stroke: rgba(243,239,231,0.38); stroke-width: 2"></rect>
+<path d="M590 140v320M480 300h220M0 700h880" style="stroke: rgba(243,239,231,0.28); stroke-width: 2"></path>
+</svg>
+<div style="position: absolute; left: 56px; bottom: 56px; right: 56px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 34px">Dwellings</span>
+<span style="font-family: Fraunces, Georgia, serif; font-size: 52px; line-height: 1.05; letter-spacing: -1px; max-width: 640px">Every place your agent finds, in one scroll.</span>
+</div>
+</div>
+<div style="padding: 0 72px; display: flex; flex-direction: column; justify-content: center; gap: 26px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 400; font-size: 38px">Welcome back</h1>
+<span style="font-size: 15px; color: #A39E93">Sign in on this device with a passkey, or use your password.</span>
+</div>
+<button style="height: 56px; border-radius: 12px; border: 0; background: #F3EFE7; color: #0F0E0C; font-size: 16px; font-weight: 600; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer">
+<svg sc-camel-view-box="0 0 24 24" width="22" height="22" style="fill: none; stroke: currentColor; stroke-width: 1.8"><circle cx="9" cy="8" r="4"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5 1.4 0 2.6.3 3.6 1"></path><circle cx="18" cy="13" r="2.5"></circle><path d="M18 15.5V21M18 18.5h2"></path></svg>
+Sign in with a passkey
+</button>
+<span style="text-align: center; font-size: 13px; color: #A39E93">Face ID, Touch ID, Windows Hello or a security key</span>
+<div style="display: flex; align-items: center; gap: 14px; color: #6F6A61; font-size: 13px"><span style="flex-grow: 1; height: 1px; background: #2A2824"></span>or<span style="flex-grow: 1; height: 1px; background: #2A2824"></span></div>
+<div style="display: flex; flex-direction: column; gap: 14px">
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #D6D1C7">Email
+<input type="email" value="orpheus@rtech.cloud" style="height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid #2A2824; background: #191815; color: #F3EFE7; font-size: 15px; font-family: inherit">
+</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #D6D1C7">Password
+<input type="password" value="correcthorse" style="height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid #2A2824; background: #191815; color: #F3EFE7; font-size: 15px; font-family: inherit">
+</label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; color: #D6D1C7"><input type="checkbox" checked="checked" style="width: 18px; height: 18px; accent-color: #E8845C">Trust this device for 30 days</label>
+<button style="height: 50px; border-radius: 12px; border: 1px solid #2A2824; background: transparent; color: #F3EFE7; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer">Sign in with password</button>
+</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: #A39E93">After a password sign-in you'll be offered to add a passkey for this device. Agents don't sign in here — they connect with a pairing code from Settings.</p>
+</div>
+</div>
+</x-dc>

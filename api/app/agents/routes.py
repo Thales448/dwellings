@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.agents.service import (
     create_pairing_code,
     heartbeat,
+    list_agents,
     manifest,
     pair_agent,
     revoke_agent,
@@ -87,6 +88,14 @@ def rotate(request: Request) -> JSONResponse:
     if isinstance(result, str):
         return _access(result)
     return JSONResponse(result)
+
+
+@router.get("/hunts/{hunt_id}/agents", response_model=None)
+def agents(hunt_id: str, request: Request) -> JSONResponse:
+    result = list_agents(_token(request), client_ip(request), hunt_id)
+    if isinstance(result, str):
+        return _access(result)
+    return JSONResponse({"agents": result})
 
 
 @router.delete("/hunts/{hunt_id}/agents/{agent_id}", response_model=None)

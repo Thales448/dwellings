@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.agents.auth import SCOPES, mac
 from app.agents.models import Agent, PairingCode
@@ -300,6 +300,39 @@ def rotate_token(ip: str) -> dict[str, Any] | Error:
             payload={},
         )
         return {"token": raw, "token_prefix": raw[:8]}
+
+
+def list_agents(token: str | None, ip: str, hunt_id: str) -> list[dict[str, Any]] | Error:
+    with session_scope() as db:
+        found = _load_live_session(db, token or "", ip) if token else None
+        if found is None:
+            return "unauthenticated"
+        user, _row = found
+        access = require_hunt(db, user.id, hunt_id, "viewer")
+        if isinstance(access, str):
+            return access
+        from app.listings.models import Listing
+
+        rows = db.scalars(select(Agent).where(Agent.hunt_id == hunt_id)).all()
+        public: list[dict[str, Any]] = []
+        for agent in rows:
+            count = db.scalar(
+                select(func.count())
+                .select_from(Listing)
+                .where(Listing.created_by_agent == agent.id)
+            )
+            public.append(
+                {
+                    "id": agent.id,
+                    "name": agent.name,
+                    "scopes": list(agent.scopes),
+                    "token_prefix": agent.token_prefix,
+                    "last_seen_at": agent.last_seen_at.isoformat() if agent.last_seen_at else None,
+                    "revoked_at": agent.revoked_at.isoformat() if agent.revoked_at else None,
+                    "posts": int(count or 0),
+                }
+            )
+        return public
 
 
 def revoke_agent(

@@ -1,0 +1,77 @@
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+
+
+</helmet>
+<div style="width: 1440px; height: 1080px; box-sizing: border-box; background: #0F0E0C; color: #F3EFE7; display: flex; flex-direction: column; font-family: 'Instrument Sans', system-ui, sans-serif">
+
+<header style="height: 72px; box-sizing: border-box; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #2A2824">
+<div style="display: flex; align-items: baseline; gap: 14px">
+<span style="font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 30px; letter-spacing: -0.5px">Dwellings</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #A39E93">dwellings.rtech.cloud</span>
+</div>
+<nav style="display: flex; gap: 4px; padding: 4px; background: #191815; border: 1px solid #2A2824; border-radius: 999px">
+<a href="Main.dc.html" style="padding: 10px 18px; border-radius: 999px; color: #F3EFE7; font-size: 14px; text-decoration: none">Feed</a>
+<a href="Wall.dc.html" style="padding: 10px 18px; border-radius: 999px; background: #F3EFE7; color: #0F0E0C; font-size: 14px; font-weight: 600; text-decoration: none">Wall</a>
+<a href="Wall.dc.html" style="padding: 10px 18px; border-radius: 999px; color: #A39E93; font-size: 14px; text-decoration: none">Gone</a>
+</nav>
+<div style="display: flex; align-items: center; gap: 10px; padding: 8px 14px; border: 1px solid #2A2824; border-radius: 999px; font-size: 13px">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #8FB996; box-shadow: 0 0 0 4px rgba(143,185,150,0.18)"></span>
+<span>Agent hunting</span>
+<span style="color: #A39E93; font-family: 'JetBrains Mono', monospace; font-size: 12px">last drop 12m ago</span>
+</div>
+</header>
+
+<div style="padding: 36px 32px 24px; display: flex; justify-content: space-between; align-items: flex-end">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 12px; letter-spacing: 1.6px; text-transform: uppercase; color: #A39E93">This week's finds</span>
+<h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 400; font-size: 52px; letter-spacing: -1px; line-height: 1">Eight places, <span style="font-style: italic; color: #E8845C">one</span> worth touring.</h1>
+</div>
+<div style="display: flex; gap: 8px">
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 0; background: #F3EFE7; color: #0F0E0C; font-size: 14px; font-weight: 600; font-family: inherit">Presentable 6</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #2A2824; background: transparent; color: #F3EFE7; font-size: 14px; font-family: inherit">Unrated 3</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #2A2824; background: transparent; color: #F3EFE7; font-size: 14px; font-family: inherit">Tour 1</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #5A2427; background: transparent; color: #F07D80; font-size: 14px; font-family: inherit">Flagged 1</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #2A2824; background: transparent; color: #A39E93; font-size: 14px; font-family: inherit">Gone 1</button>
+<button style="height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #2A2824; background: transparent; color: #A39E93; font-size: 14px; font-family: inherit">Sort · Best fit</button>
+</div>
+</div>
+
+<div style="padding: 0 32px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start">
+<sc-for list="{{cols}}" as="col" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<sc-for list="{{col.items}}" as="it" hint-placeholder-count="2">
+<article style="display: flex; flex-direction: column; gap: 12px; opacity: {{it.op}}">
+<div style="position: relative; height: {{it.h}}; border-radius: 14px; overflow: hidden; background: {{it.tone}}; filter: {{it.filter}}">
+<svg sc-camel-view-box="0 0 320 400" width="100%" height="100%" sc-camel-preserve-aspect-ratio="xMidYMid slice" style="display: block">
+<polygon points="180,60 260,60 320,400 120,400" style="fill: rgba(255,236,200,0.07)"></polygon>
+<rect x="180" y="60" width="80" height="130" rx="3" style="fill: rgba(255,236,200,0.10); stroke: rgba(243,239,231,0.38); stroke-width: 1.5"></rect>
+<path d="M220 60v130M180 125h80M0 320h320" style="stroke: rgba(243,239,231,0.30); stroke-width: 1.5"></path>
+</svg>
+<span style="position: absolute; top: 12px; left: 12px; padding: 5px 10px; border-radius: 999px; background: rgba(15,14,12,0.72); font-family: 'JetBrains Mono', monospace; font-size: 11px"><span style="color: #8FB996">{{it.score}}</span> hunt · {{it.photos}} photos</span>
+<sc-if value="{{it.loved}}" hint-placeholder-val="{{false}}">
+<span style="position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 50%; background: #E8845C; color: #0F0E0C; display: flex; align-items: center; justify-content: center"><svg sc-camel-view-box="0 0 24 24" width="18" height="18" style="fill: currentColor"><path d="M12 20s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.2a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"></path></svg></span>
+</sc-if>
+<sc-if value="{{it.scam}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 10px 12px; background: #E5484D; color: #1A0B0B; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px"><svg sc-camel-view-box="0 0 24 24" width="16" height="16" style="fill: none; stroke: currentColor; stroke-width: 2.2"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4M12 17.5v.5"></path></svg>Likely scam</div>
+</sc-if>
+<sc-if value="{{it.gone}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; left: 0; right: 0; top: 42%; display: flex; justify-content: center"><span style="transform: rotate(-6deg); padding: 8px 14px; border: 2px solid #F3EFE7; border-radius: 8px; font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 20px; background: rgba(15,14,12,0.4)">No longer available</span></div>
+</sc-if>
+</div>
+<div style="display: flex; flex-direction: column; gap: 5px">
+<span style="font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: #A39E93">{{it.hood}}</span>
+<span style="font-family: Fraunces, Georgia, serif; font-size: 22px; line-height: 1.15">{{it.title}}</span>
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 4px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">{{it.price}} · {{it.beds}} · {{it.sqft}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{it.tagColor}}">{{it.tag}}</span>
+</div>
+</div>
+</article>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</div>
+</x-dc>

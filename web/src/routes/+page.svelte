@@ -1,13 +1,34 @@
 <script lang="ts">
-	import HuntSwitcher from '$lib/components/HuntSwitcher.svelte';
+	import { onMount } from 'svelte';
+	import { api } from '$lib/api';
+	import type { Hunt } from '$lib/listing';
+
+	let signedOut = $state(false);
+
+	onMount(() => {
+		void enter();
+	});
+
+	async function enter() {
+		const response = await api('/api/v1/hunts');
+		if (!response.ok) {
+			signedOut = true;
+			return;
+		}
+		const hunts = ((await response.json()) as { hunts: Hunt[] }).hunts;
+		if (hunts[0]) window.location.href = `/h/${hunts[0].slug}`;
+		else signedOut = true;
+	}
 </script>
 
 <main>
-	<HuntSwitcher />
 	<p class="wordmark">Dwellings</p>
-	<p class="muted">Listing hunts, rated by the people who live with them.</p>
-	<a class="enter" href="/login">Sign in</a>
-	<a class="quiet" href="/settings">Devices</a>
+	{#if signedOut}
+		<p class="muted">Every place your agent finds, in one scroll.</p>
+		<a class="enter" href="/login">Sign in</a>
+	{:else}
+		<p class="muted">Opening your hunt…</p>
+	{/if}
 </main>
 
 <style>
@@ -17,26 +38,18 @@
 		align-content: center;
 		justify-items: start;
 		padding: 48px;
-		gap: 12px;
+		gap: 16px;
 		background: var(--ground);
 	}
 
-	.enter,
-	.quiet {
+	.enter {
 		min-height: 44px;
 		display: inline-flex;
 		align-items: center;
 		padding: 0 18px;
 		border-radius: 999px;
 		text-decoration: none;
-	}
-
-	.enter {
 		background: var(--love);
 		color: var(--ground);
-	}
-
-	.quiet {
-		color: var(--muted);
 	}
 </style>

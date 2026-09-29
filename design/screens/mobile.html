@@ -1,0 +1,52 @@
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+
+
+</helmet>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: {{cur.tone}}; color: #F3EFE7; font-family: 'Instrument Sans', system-ui, sans-serif">
+<div style="position: absolute; inset: 0; filter: {{cur.filter}}">
+<svg sc-camel-view-box="0 0 390 844" width="390" height="844" style="display: block">
+<polygon points="200,150 320,150 390,700 90,700" style="fill: rgba(255,236,200,0.07)"></polygon>
+<rect x="200" y="150" width="120" height="190" rx="4" style="fill: rgba(255,236,200,0.10); stroke: rgba(243,239,231,0.38); stroke-width: 2"></rect>
+<path d="M260 150v190M200 245h120M0 560h390" style="stroke: rgba(243,239,231,0.28); stroke-width: 2"></path>
+</svg>
+</div>
+
+<div style="position: absolute; top: 0; left: 0; right: 0; padding: 20px 20px 0; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; gap: 4px">
+<sc-for list="{{bars}}" as="b" hint-placeholder-count="6">
+<span style="flex-grow: 1; height: 3px; border-radius: 2px; background: {{b.bg}}"></span>
+</sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center">
+<span style="font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 22px">Dwellings</span>
+<span style="padding: 6px 12px; border-radius: 999px; background: rgba(15,14,12,0.72); font-family: 'JetBrains Mono', monospace; font-size: 12px"><span style="color: #8FB996">{{cur.score}}</span> hunt · {{pos}} / 6</span>
+</div>
+</div>
+
+<sc-if value="{{cur.gone}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; top: 230px; left: 0; right: 0; display: flex; justify-content: center"><span style="transform: rotate(-7deg); padding: 10px 16px; border: 2px solid #F3EFE7; border-radius: 8px; font-family: Fraunces, Georgia, serif; font-style: italic; font-size: 24px; background: rgba(15,14,12,0.4)">No longer available</span></div>
+</sc-if>
+
+<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 120px 20px 28px; background: linear-gradient(to top, rgba(15,14,12,0.97) 55%, rgba(15,14,12,0)); display: flex; flex-direction: column; gap: 14px">
+<span style="font-size: 11px; letter-spacing: 1.6px; text-transform: uppercase; color: #A39E93">{{cur.hood}} · found {{cur.found}}</span>
+<h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 400; font-size: 34px; line-height: 1.05; letter-spacing: -0.5px">{{cur.title}}</h1>
+<div style="display: flex; gap: 6px; flex-wrap: wrap">
+<span style="padding: 6px 10px; border: 1px solid #3A3833; border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{cur.price}}</span>
+<span style="padding: 6px 10px; border: 1px solid #3A3833; border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{cur.beds}}</span>
+<span style="padding: 6px 10px; border: 1px solid #3A3833; border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 12px">{{cur.sqft}}</span>
+</div>
+<p style="margin: 0; font-size: 15px; line-height: 1.45; color: #D6D1C7">{{cur.why}}</p>
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 6px">
+<button sc-camel-on-click="{{pass}}" aria-label="Pass" style="width: 56px; height: 56px; border-radius: 50%; border: 1px solid #3A3833; background: rgba(15,14,12,0.6); color: #F3EFE7; display: flex; align-items: center; justify-content: center"><svg sc-camel-view-box="0 0 24 24" width="22" height="22" style="fill: none; stroke: currentColor; stroke-width: 1.8"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+<div style="display: flex" role="group" aria-label="Rating">
+<sc-for list="{{stars}}" as="st" hint-placeholder-count="5">
+<button sc-camel-on-click="{{st.set}}" aria-label="{{st.label}}" style="width: 44px; height: 44px; border: 0; background: transparent; padding: 0; display: flex; align-items: center; justify-content: center"><svg sc-camel-view-box="0 0 24 24" width="26" height="26" style="fill: {{st.fill}}; stroke: {{st.stroke}}; stroke-width: 1.5; stroke-linejoin: round"><polygon points="12 3 14.8 8.9 21 9.6 16.4 13.9 17.6 20 12 16.9 6.4 20 7.6 13.9 3 9.6 9.2 8.9"></polygon></svg></button>
+</sc-for>
+</div>
+<button sc-camel-on-click="{{love}}" aria-label="Love" style="width: 56px; height: 56px; border-radius: 50%; border: 0; background: #E8845C; color: #0F0E0C; display: flex; align-items: center; justify-content: center"><svg sc-camel-view-box="0 0 24 24" width="24" height="24" style="fill: currentColor"><path d="M12 20s-7.5-4.6-7.5-10.3A4.2 4.2 0 0 1 12 7.2a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"></path></svg></button>
+</div>
+</div>
+</div>
+</x-dc>
