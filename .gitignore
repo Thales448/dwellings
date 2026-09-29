@@ -1,0 +1,17 @@
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+web/build
+web/.svelte-kit
+api/.venv
+__pycache__/
+*.pyc
+.mypy_cache
+.ruff_cache
+.pytest_cache
+*.egg-info
+dist/
+.coverage
+htmlcov/

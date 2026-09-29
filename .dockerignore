@@ -1,0 +1,12 @@
+.git
+.env
+data
+**/node_modules
+**/.venv
+web/build
+web/.svelte-kit
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage

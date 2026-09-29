@@ -1,0 +1,14 @@
+services:
+  dwellings:
+    build: .
+    image: dwellings:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - dwellings-data:/data
+    env_file:
+      - .env.example
+
+volumes:
+  dwellings-data:
