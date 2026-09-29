@@ -529,6 +529,17 @@ def accept_invite(
         )
         db.add(user)
         db.flush()
+        if invite.hunt_id:
+            from app.tenancy.models import HuntMember
+
+            db.add(
+                HuntMember(
+                    hunt_id=invite.hunt_id,
+                    user_id=user.id,
+                    role=invite.role,
+                    rater_label=display_name.strip()[:80],
+                )
+            )
         invite.used_by = user.id
         invite.used_at = now
         raw, expires_at = _issue_session(

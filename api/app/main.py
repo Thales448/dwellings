@@ -8,6 +8,7 @@ from app.auth.routes import router as auth_router
 from app.core.config import get_settings
 from app.core.health import health_payload
 from app.core.security import SecurityMiddleware
+from app.tenancy.routes import router as tenancy_router
 
 
 def create_app() -> FastAPI:
@@ -16,6 +17,7 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityMiddleware)
     app.include_router(auth_router)
     app.include_router(passkey_router)
+    app.include_router(tenancy_router)
 
     @app.get("/api/v1/health")
     def health() -> JSONResponse:

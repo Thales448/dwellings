@@ -1,4 +1,9 @@
+<script lang="ts">
+	import HuntSwitcher from '$lib/components/HuntSwitcher.svelte';
+</script>
+
 <main>
+	<HuntSwitcher />
 	<p class="wordmark">Dwellings</p>
 	<p class="muted">Listing hunts, rated by the people who live with them.</p>
 	<a class="enter" href="/login">Sign in</a>
