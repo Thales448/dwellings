@@ -5,6 +5,8 @@ from sqlalchemy import engine_from_config, pool
 
 import app.auth.models  # noqa: F401
 import app.events.models  # noqa: F401
+import app.jobs.models  # noqa: F401
+import app.listings.models  # noqa: F401
 import app.tenancy.models  # noqa: F401
 from app.core.config import get_settings
 from app.core.db import Base
