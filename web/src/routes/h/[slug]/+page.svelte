@@ -4,7 +4,21 @@
 	import PlaceArt from '$lib/components/PlaceArt.svelte';
 	import Shell from '$lib/components/Shell.svelte';
 	import { api } from '$lib/api';
-	import { money, queueTag, seenLabel, tone, unitLabel, type Hunt, type Listing } from '$lib/listing';
+	import {
+		BED_FILTERS,
+		bedFilterLabel,
+		coverPhoto,
+		lastCheckedAt,
+		matchesBedFilter,
+		money,
+		queueTag,
+		seenLabel,
+		tone,
+		unitLabel,
+		type BedFilter,
+		type Hunt,
+		type Listing
+	} from '$lib/listing';
 	import { loadMarks, saveMarks, type Mark } from '$lib/marks';
 
 	const tags = ['kitchen', 'light', 'size', 'noise', 'building', 'commute', 'price', 'vibe'];
@@ -15,10 +29,15 @@
 	let index = $state(0);
 	let marks = $state<Record<string, Mark>>({});
 	let pulse = $state('no heartbeat yet');
+	/** Feed floor: studio + 1BR + 2BR (incl. full_2br_plus ≤$3200). Does not drop RI stretch. */
+	let bedFilters = $state<BedFilter[]>([...BED_FILTERS]);
 	let slug = $derived($page.params.slug ?? '');
 	let hunt = $derived(hunts.find((item) => item.slug === slug) ?? null);
-	let current = $derived(listings[index] ?? null);
-	let unrated = $derived(listings.filter((item) => !marks[item.id]?.stars).length);
+	let floored = $derived(
+		listings.filter((item) => item.is_presentable && matchesBedFilter(item, bedFilters))
+	);
+	let current = $derived(floored[index] ?? null);
+	let unrated = $derived(floored.filter((item) => !marks[item.id]?.stars).length);
 
 	onMount(() => {
 		marks = loadMarks();
@@ -30,10 +49,10 @@
 	function onKey(event: KeyboardEvent) {
 		const target = event.target;
 		if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
-		const listing = listings[index];
-		if ((event.key === 'j' || event.key === 'ArrowDown') && listings.length) {
-			index = Math.min(listings.length - 1, index + 1);
-		} else if ((event.key === 'k' || event.key === 'ArrowUp') && listings.length) {
+		const listing = floored[index];
+		if ((event.key === 'j' || event.key === 'ArrowDown') && floored.length) {
+			index = Math.min(floored.length - 1, index + 1);
+		} else if ((event.key === 'k' || event.key === 'ArrowUp') && floored.length) {
 			index = Math.max(0, index - 1);
 		} else if (listing && event.key >= '1' && event.key <= '5') {
 			setStar(listing.id, Number(event.key));
@@ -61,7 +80,7 @@
 		const found = hunts.find((item) => item.slug === slug);
 		if (!found) return;
 		const listed = await api(
-			`/api/v1/listings?hunt_id=${found.id}&presentable=false&sort=hunt_score&limit=50`
+			`/api/v1/listings?hunt_id=${found.id}&presentable=false&sort=hunt_score&limit=100`
 		);
 		if (!listed.ok) return;
 		listings = ((await listed.json()) as { listings: Listing[] }).listings;
@@ -112,6 +131,13 @@
 			: [...currentTags, tag];
 		write(id, { tags: next });
 	}
+
+	function toggleBed(filter: BedFilter) {
+		const on = bedFilters.includes(filter);
+		if (on && bedFilters.length === 1) return;
+		bedFilters = on ? bedFilters.filter((item) => item !== filter) : [...bedFilters, filter];
+		index = 0;
+	}
 </script>
 
 <div class="screen">
@@ -129,15 +155,30 @@
 				<span>Presentable</span>
 				<span class="mono">by hunt score</span>
 			</div>
+			<div class="bed-filters" role="group" aria-label="Bedroom floor filters">
+				{#each BED_FILTERS as filter (filter)}
+					<button
+						type="button"
+						class:on={bedFilters.includes(filter)}
+						onclick={() => toggleBed(filter)}
+					>
+						{bedFilterLabel(filter)}
+					</button>
+				{/each}
+			</div>
 			<div class="queue">
-				{#each listings as listing, itemIndex (listing.id)}
+				{#each floored as listing, itemIndex (listing.id)}
 					{@const tag = queueTag(listing)}
 					<button
 						type="button"
 						class:selected={itemIndex === index}
 						onclick={() => (index = itemIndex)}
 					>
+						{@const cover = coverPhoto(listing)}
 						<div class="thumb" style:background={tone(listing.short_id)}>
+							{#if cover}
+								<img src={cover.thumb} alt="" loading="lazy" />
+							{/if}
 							<span>#{listing.short_id}</span>
 						</div>
 						<div class="meta">
@@ -149,16 +190,22 @@
 				{/each}
 			</div>
 			<p class="footnote">
-				Hidden by default: rooms, demoted, high scam risk, gone, out-of-geo, over $3,000 (RI stretch
-				to $4,000).
+				Floor shows presentable studios, 1BRs, and 2BRs (≤$3,200). RI stretch studios/1BRs to $4,000
+				stay included. Bedroom chips filter that floor — they do not drop RI stretch.
 			</p>
 		</aside>
 
 		<main>
 			{#if current}
 				{@const tag = queueTag(current)}
+				{@const cover = coverPhoto(current)}
+				{@const checked = lastCheckedAt(current)}
 				<div class="stage" style:background={tone(current.short_id)}>
-					<PlaceArt />
+					{#if cover}
+						<img class="cover" src={cover.url} alt={cover.caption ?? current.title} />
+					{:else}
+						<PlaceArt />
+					{/if}
 					{#if current.scam_risk === 'high'}
 						<div class="banner">Likely scam — don't send money or documents before an in-person viewing.</div>
 					{/if}
@@ -178,6 +225,7 @@
 					<span class="kicker">
 						{current.neighborhood ?? '—'}, {current.borough_or_city ?? '—'} · {String(current.attrs.subway ?? 'subway')}
 						· first seen {seenLabel(current.first_seen)}
+						· last checked {checked ? seenLabel(checked) : '—'}
 					</span>
 					<h1>{current.title}</h1>
 				</div>
@@ -223,7 +271,7 @@
 					</div>
 					<div class="step">
 						<button type="button" aria-label="Previous listing" onclick={() => (index = Math.max(0, index - 1))}>↑</button>
-						<button type="button" aria-label="Next listing" onclick={() => (index = Math.min(listings.length - 1, index + 1))}>↓</button>
+						<button type="button" aria-label="Next listing" onclick={() => (index = Math.min(floored.length - 1, index + 1))}>↓</button>
 					</div>
 				</div>
 				<div class="why">
@@ -272,7 +320,7 @@
 				</section>
 				<section class="trail">
 					<div><span>First seen</span><span class="mono">{seenLabel(current.first_seen)}</span></div>
-					<div><span>Last checked</span><span class="mono">{current.availability_checked_at ? seenLabel(current.availability_checked_at) : '—'}</span></div>
+					<div><span>Last checked</span><span class="mono">{checked ? seenLabel(checked) : '—'}</span></div>
 					<div><span>Status</span><span class="mono">{current.status}</span></div>
 				</section>
 				<a class="open" href={current.url} target="_blank" rel="noreferrer">Open on {current.source}</a>
@@ -361,6 +409,52 @@
 
 	.queue button.selected {
 		background: var(--raised);
+	}
+
+
+	.bed-filters {
+		display: flex;
+		gap: 6px;
+		padding: 0 8px 12px;
+		flex-wrap: wrap;
+	}
+
+	.bed-filters button {
+		height: 32px;
+		padding: 0 12px;
+		border-radius: 999px;
+		border: 1px solid var(--line);
+		background: transparent;
+		color: var(--text);
+		cursor: pointer;
+		font-size: 12px;
+	}
+
+	.bed-filters button.on {
+		background: var(--text);
+		color: var(--ground);
+		border-color: transparent;
+		font-weight: 600;
+	}
+
+	.thumb img,
+	img.cover {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	.thumb {
+		position: relative;
+		overflow: hidden;
+	}
+
+	.thumb span {
+		position: relative;
+		z-index: 1;
 	}
 
 	.thumb {

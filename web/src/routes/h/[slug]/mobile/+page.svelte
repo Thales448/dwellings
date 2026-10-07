@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import PlaceArt from '$lib/components/PlaceArt.svelte';
 	import { api } from '$lib/api';
-	import { money, tone, unitLabel, type Hunt, type Listing } from '$lib/listing';
+	import { coverPhoto, money, tone, unitLabel, type Hunt, type Listing } from '$lib/listing';
 	import { loadMarks, saveMarks } from '$lib/marks';
 
 	let listings = $state<Listing[]>([]);
@@ -54,8 +54,13 @@
 
 <div class="stage">
 	{#if current}
+		{@const cover = coverPhoto(current)}
 		<div class="phone" style:background={tone(current.short_id)}>
-			<PlaceArt />
+			{#if cover}
+				<img class="cover" src={cover.url} alt="" />
+			{:else}
+				<PlaceArt />
+			{/if}
 			<div class="top">
 				<div class="bars">
 					{#each listings as listing, bar (listing.id)}
@@ -98,6 +103,14 @@
 </div>
 
 <style>
+	.cover {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
 	.stage {
 		min-height: 100vh;
 		display: grid;

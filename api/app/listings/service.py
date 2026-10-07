@@ -9,7 +9,7 @@ from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.service import _load_live_session
-from app.core.clock import utcnow
+from app.core.clock import iso_utc, utcnow
 from app.core.db import session_scope
 from app.core.request_ctx import current_authorization
 from app.events.models import Event
@@ -100,12 +100,10 @@ def _public(row: Listing, photos: list[dict[str, Any]] | None = None) -> dict[st
         "source": row.source,
         "title": row.title,
         "status": row.status,
-        "first_seen": row.first_seen.isoformat(),
-        "last_seen": row.last_seen.isoformat(),
+        "first_seen": iso_utc(row.first_seen),
+        "last_seen": iso_utc(row.last_seen),
         "unavailable_date": row.unavailable_date.isoformat() if row.unavailable_date else None,
-        "availability_checked_at": (
-            row.availability_checked_at.isoformat() if row.availability_checked_at else None
-        ),
+        "availability_checked_at": iso_utc(row.availability_checked_at),
         "listing_type": row.listing_type,
         "unit_kind": row.unit_kind,
         "beds": row.beds,
@@ -134,14 +132,14 @@ def _public(row: Listing, photos: list[dict[str, Any]] | None = None) -> dict[st
         "link_check": {
             "ok": bool(row.link_ok),
             "error": row.link_error,
-            "checked_at": row.link_checked_at.isoformat() if row.link_checked_at else None,
+            "checked_at": iso_utc(row.link_checked_at),
         },
         "source_snapshot": row.source_snapshot,
         "days_on_market": row.days_on_market,
         "attrs": row.attrs,
         "created_by_agent": row.created_by_agent,
-        "created_at": row.created_at.isoformat(),
-        "updated_at": row.updated_at.isoformat(),
+        "created_at": iso_utc(row.created_at),
+        "updated_at": iso_utc(row.updated_at),
         "photos": photos or [],
         "ratings": [],
         "my_rating": None,
@@ -187,7 +185,7 @@ def _detail(db: Session, row: Listing) -> dict[str, Any]:
             "actor_type": event.actor_type,
             "actor_id": event.actor_id,
             "payload": event.payload,
-            "at": event.at.isoformat(),
+            "at": iso_utc(event.at),
         }
         for event in events
     ]
@@ -201,7 +199,7 @@ def _detail(db: Session, row: Listing) -> dict[str, Any]:
             "author_type": "agent" if note.author_agent_id else "user",
             "author_user_id": note.author_user_id,
             "author_agent_id": note.author_agent_id,
-            "created_at": note.created_at.isoformat(),
+            "created_at": iso_utc(note.created_at),
         }
         for note in notes
     ]
@@ -1014,7 +1012,7 @@ def add_comment(
             "author_type": actor.kind,
             "author_user_id": note.author_user_id,
             "author_agent_id": note.author_agent_id,
-            "created_at": note.created_at.isoformat(),
+            "created_at": iso_utc(note.created_at),
         }
 
 

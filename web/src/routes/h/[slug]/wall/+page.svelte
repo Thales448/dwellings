@@ -4,26 +4,44 @@
 	import PlaceArt from '$lib/components/PlaceArt.svelte';
 	import Shell from '$lib/components/Shell.svelte';
 	import { api } from '$lib/api';
-	import { money, queueTag, tone, unitLabel, type Hunt, type Listing } from '$lib/listing';
+	import {
+		BED_FILTERS,
+		bedFilterLabel,
+		coverPhoto,
+		matchesBedFilter,
+		money,
+		queueTag,
+		tone,
+		unitLabel,
+		type BedFilter,
+		type Hunt,
+		type Listing
+	} from '$lib/listing';
 	import { loadMarks, type Mark } from '$lib/marks';
 
 	let hunts = $state<Hunt[]>([]);
 	let listings = $state<Listing[]>([]);
 	let filter = $state('presentable');
+	let bedFilters = $state<BedFilter[]>([...BED_FILTERS]);
 	let marks = $state<Record<string, Mark>>({});
 	let slug = $derived($page.params.slug ?? '');
 	let hunt = $derived(hunts.find((item) => item.slug === slug) ?? null);
 
 	let shown = $derived.by(() => {
+		let rows: Listing[];
 		if (filter === 'gone') {
-			return listings.filter((item) => item.status === 'dead' || item.status === 'rented');
+			rows = listings.filter((item) => item.status === 'dead' || item.status === 'rented');
+		} else if (filter === 'flagged') {
+			rows = listings.filter((item) => item.scam_risk === 'high');
+		} else if (filter === 'unrated') {
+			rows = listings.filter((item) => !marks[item.id]?.stars);
+		} else if (filter === 'tour') {
+			rows = listings.filter((item) => marks[item.id]?.tour === 'Tour' || item.status === 'watching');
+		} else {
+			rows = listings.filter((item) => item.is_presentable);
 		}
-		if (filter === 'flagged') return listings.filter((item) => item.scam_risk === 'high');
-		if (filter === 'unrated') return listings.filter((item) => !marks[item.id]?.stars);
-		if (filter === 'tour') {
-			return listings.filter((item) => marks[item.id]?.tour === 'Tour' || item.status === 'watching');
-		}
-		return listings.filter((item) => item.is_presentable);
+		// Bedroom/floor chips: studio + 1BR + 2BR; never drop RI stretch via price.
+		return rows.filter((item) => matchesBedFilter(item, bedFilters));
 	});
 
 	let columns = $derived.by(() => {
@@ -58,6 +76,12 @@
 		const url = next === 'presentable' ? `/h/${slug}/wall` : `/h/${slug}/wall?filter=${next}`;
 		history.replaceState(null, '', url);
 	}
+
+	function toggleBed(next: BedFilter) {
+		const on = bedFilters.includes(next);
+		if (on && bedFilters.length === 1) return;
+		bedFilters = on ? bedFilters.filter((item) => item !== next) : [...bedFilters, next];
+	}
 </script>
 
 <div class="screen">
@@ -74,6 +98,10 @@
 			<button type="button" class="flag" class:on={filter === 'flagged'} onclick={() => pick('flagged')}>Flagged {listings.filter((item) => item.scam_risk === 'high').length}</button>
 			<button type="button" class:on={filter === 'gone'} onclick={() => pick('gone')}>Gone</button>
 			<button type="button">Sort · Best fit</button>
+			<span class="sep" aria-hidden="true"></span>
+			{#each BED_FILTERS as bed (bed)}
+				<button type="button" class:on={bedFilters.includes(bed)} onclick={() => toggleBed(bed)}>{bedFilterLabel(bed)}</button>
+			{/each}
 		</div>
 	</div>
 	<div class="grid">
@@ -82,8 +110,13 @@
 				{#each column as listing (listing.id)}
 					{@const tag = queueTag(listing)}
 					<a class="card" href="/h/{slug}">
+						{@const cover = coverPhoto(listing)}
 						<div class="photo" style:background={tone(listing.short_id)} style:height={listing.short_id % 2 ? '280px' : '220px'}>
-							<PlaceArt />
+							{#if cover}
+								<img class="cover" src={cover.thumb} alt="" loading="lazy" />
+							{:else}
+								<PlaceArt />
+							{/if}
 							<span class="score"><em>{listing.hunt_score ?? '—'}</em> hunt</span>
 							{#if (marks[listing.id]?.stars ?? 0) >= 4}<span class="love">♥</span>{/if}
 							{#if listing.scam_risk === 'high'}<div class="strip">Likely scam</div>{/if}
@@ -182,6 +215,22 @@
 		gap: 5px;
 	}
 
+
+	.sep {
+		width: 1px;
+		height: 28px;
+		background: var(--line);
+		align-self: center;
+	}
+
+	.photo img.cover {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
 	.photo {
 		position: relative;
 		border-radius: 14px;

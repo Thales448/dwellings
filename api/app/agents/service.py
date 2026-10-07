@@ -302,7 +302,7 @@ def heartbeat(ip: str, body: dict[str, Any]) -> dict[str, Any] | Error:
             "version": body.get("version"),
             "next_run_at": body.get("next_run_at"),
             "agent_id": agent.id,
-            "server_time": utcnow().isoformat(),
+            "server_time": iso_utc(utcnow()),
         }
 
 
@@ -355,8 +355,8 @@ def list_agents(token: str | None, ip: str, hunt_id: str) -> list[dict[str, Any]
                     "name": agent.name,
                     "scopes": list(agent.scopes),
                     "token_prefix": agent.token_prefix,
-                    "last_seen_at": agent.last_seen_at.isoformat() if agent.last_seen_at else None,
-                    "revoked_at": agent.revoked_at.isoformat() if agent.revoked_at else None,
+                    "last_seen_at": iso_utc(agent.last_seen_at),
+                    "revoked_at": iso_utc(agent.revoked_at),
                     "posts": int(count or 0),
                 }
             )
