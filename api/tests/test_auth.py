@@ -50,6 +50,9 @@ class Client:
     def patch(self, path: str, body: dict[str, object]) -> TestClient:
         return self.http.patch(path, json=body, headers=self._csrf_headers())  # type: ignore[return-value]
 
+    def put(self, path: str, body: dict[str, object]) -> TestClient:
+        return self.http.put(path, json=body, headers=self._csrf_headers())  # type: ignore[return-value]
+
 
 @pytest.fixture(scope="module")
 def admin_account() -> None:

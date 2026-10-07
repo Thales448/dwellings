@@ -1,9 +1,13 @@
 from sqlalchemy import select
 from tests.test_auth import PASSWORD, Client
 
+from app.core.clock import utcnow
 from app.core.db import session_scope
 from app.jobs.models import Job
+from app.listings.models import Listing
+from app.listings.presentable import presentable
 from app.listings.stream import hub
+from app.tenancy.models import Hunt
 
 
 def _admin() -> Client:
@@ -34,7 +38,7 @@ def _hunt(client: Client) -> str:
             "slug": "nyc-core",
             "kind": "rental",
             "schema": "nyc-rental-v1",
-            "criteria": {"price_ceiling": 3000, "ri_price_ceiling": 4000},
+            "criteria": {"price_ceiling": 3000, "ri_price_ceiling": 4000, "price_ceiling_2br": 3200},
             "rating_scale": 5,
         },
     )
@@ -46,8 +50,11 @@ def _body(hunt_id: str, **overrides: object) -> dict[str, object]:
     body: dict[str, object] = {
         "hunt_id": hunt_id,
         "external_id": "cl-1",
-        "url": "https://www.streeteasy.com/building/sunnyside?utm_source=digest",
-        "source": "streeteasy",
+        "url": (
+            "https://newyork.craigslist.org/que/apa/d/sunnyside-elevator/"
+            "7900000001.html?utm_source=digest"
+        ),
+        "source": "craigslist",
         "title": "Elevator one-bed by the 7",
         "listing_type": "couple",
         "unit_kind": "full_1br",
@@ -62,6 +69,18 @@ def _body(hunt_id: str, **overrides: object) -> dict[str, object]:
     return body
 
 
+def _mark_link_ok(listing_id: str) -> None:
+    with session_scope() as db:
+        row = db.get(Listing, listing_id)
+        assert row is not None
+        row.link_ok = True
+        row.link_error = None
+        row.link_checked_at = utcnow()
+        hunt = db.get(Hunt, row.hunt_id)
+        assert hunt is not None
+        row.is_presentable = presentable(hunt, row)
+
+
 def test_upsert_status_never_delete_and_presentable() -> None:
     admin = _admin()
     hunt_id = _hunt(admin)
@@ -74,12 +93,13 @@ def test_upsert_status_never_delete_and_presentable() -> None:
         assert listing["short_id"] == 1
         assert listing["beds"] == 1
         assert listing["beds_label"] == "1br"
-        assert listing["url"] == "https://streeteasy.com/building/sunnyside"
-        assert listing["source_snapshot"] == {
-            "title": "Elevator one-bed by the 7",
-            "price": 2800,
-        }
-        assert listing["is_presentable"] is True
+        assert listing["url"] == (
+            "https://newyork.craigslist.org/que/apa/d/sunnyside-elevator/7900000001.html"
+        )
+        assert listing["source_snapshot"]["title"] == "Elevator one-bed by the 7"
+        assert listing["source_snapshot"]["price"] == 2800
+        assert listing["link_check"]["ok"] is False
+        assert listing["is_presentable"] is False
         assert listing["scam_risk"] == "low"
         event = mailbox.get(timeout=2)
         assert event["type"] == "listing.created"
@@ -88,7 +108,7 @@ def test_upsert_status_never_delete_and_presentable() -> None:
             "/api/v1/listings",
             _body(
                 hunt_id,
-                url="https://streeteasy.com/building/sunnyside/",
+                url="https://newyork.craigslist.org/que/apa/d/sunnyside-elevator/7900000001.html",
                 title="Quieter one-bed",
             ),
         )
@@ -103,7 +123,7 @@ def test_upsert_status_never_delete_and_presentable() -> None:
             _body(
                 hunt_id,
                 external_id="cl-2",
-                url="https://streeteasy.com/building/other",
+                url="https://newyork.craigslist.org/que/apa/d/other-place/7900000002.html",
                 price=3500,
             ),
         )
@@ -116,13 +136,15 @@ def test_upsert_status_never_delete_and_presentable() -> None:
             _body(
                 hunt_id,
                 external_id="cl-ri",
-                url="https://streeteasy.com/building/ri",
+                url="https://newyork.craigslist.org/mnh/apa/d/roosevelt-island/7900000003.html",
                 price=3800,
                 attrs={"is_roosevelt_island": True, "budget_band": "ri_stretch_≤4000"},
             ),
         )
         assert island.status_code == 201, island.text
-        assert island.json()["listing"]["is_presentable"] is True
+        assert island.json()["listing"]["is_presentable"] is False
+        _mark_link_ok(listing["id"])
+        _mark_link_ok(island.json()["listing"]["id"])
 
         hidden = admin.get(f"/api/v1/listings?hunt_id={hunt_id}")
         assert hidden.status_code == 200
@@ -213,3 +235,65 @@ def test_upsert_status_never_delete_and_presentable() -> None:
     with session_scope() as db:
         kinds = set(db.scalars(select(Job.kind).where(Job.done_at.is_(None))).all())
     assert {"photo", "scam"} <= kinds
+
+
+def test_rating_is_saved_and_filters_the_wall() -> None:
+    admin = _admin()
+    created_hunt = admin.post(
+        "/api/v1/hunts",
+        {
+            "name": "Rated",
+            "slug": "rated-hunt",
+            "kind": "rental",
+            "schema": "nyc-rental-v1",
+            "criteria": {"price_ceiling": 3000},
+            "rating_scale": 5,
+        },
+    )
+    assert created_hunt.status_code == 201, created_hunt.text
+    hunt_id = str(created_hunt.json()["id"])
+    created = admin.post("/api/v1/listings", _body(hunt_id, external_id="rated-1"))
+    assert created.status_code == 201, created.text
+    listing_id = created.json()["listing"]["id"]
+    other = admin.post(
+        "/api/v1/listings",
+        _body(hunt_id, external_id="rated-2", url="https://example.com/unrated"),
+    )
+    assert other.status_code == 201, other.text
+
+    saved = admin.put(f"/api/v1/listings/{listing_id}/rating", {"stars": 5})
+    assert saved.status_code == 200, saved.text
+    assert saved.json() == {"stars": 5, "passed": False}
+
+    fresh = Client()
+    signed = fresh.post(
+        "/api/v1/auth/password/login",
+        {"email": "admin@example.com", "password": PASSWORD},
+    )
+    assert signed.status_code == 200
+    listed = fresh.get(f"/api/v1/listings?hunt_id={hunt_id}&presentable=false&min_stars=5")
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["listings"]
+    assert [row["id"] for row in rows] == [listing_id]
+    assert rows[0]["my_rating"] == {"stars": 5, "passed": False}
+
+    passed = fresh.put(f"/api/v1/listings/{listing_id}/rating", {"passed": True})
+    assert passed.status_code == 200, passed.text
+    assert passed.json() == {"stars": None, "passed": True}
+    hidden = fresh.get(f"/api/v1/listings?hunt_id={hunt_id}&presentable=false&min_stars=5")
+    assert hidden.json()["listings"] == []
+    kept = fresh.get(f"/api/v1/listings?hunt_id={hunt_id}&presentable=false&passed=true")
+    assert [row["id"] for row in kept.json()["listings"]] == [listing_id]
+
+    current = next(
+        item for item in fresh.get("/api/v1/auth/sessions").json()["sessions"] if item["current"]
+    )
+    assert fresh.delete(f"/api/v1/auth/sessions/{current['id']}").status_code == 200
+    assert fresh.get("/api/v1/hunts").status_code == 401
+    again = fresh.post(
+        "/api/v1/auth/password/login",
+        {"email": "admin@example.com", "password": PASSWORD},
+    )
+    assert again.status_code == 200
+    still = fresh.get(f"/api/v1/listings?hunt_id={hunt_id}&presentable=false&passed=true")
+    assert [row["id"] for row in still.json()["listings"]] == [listing_id]

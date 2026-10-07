@@ -41,6 +41,8 @@ class NycAttrs(BaseModel):
     furnished: bool | None = None
     short_term: bool | None = None
     sublet: bool | None = None
+    verified: bool | None = None
+    ready: bool | None = None
 
     def cleaned(self) -> dict[str, Any] | str:
         if self.east_side_access and self.east_side_access not in {
@@ -87,6 +89,8 @@ class TxAttrs(BaseModel):
     property_type: str | None = None
     school_rating: float | None = None
     flood_zone: str | None = Field(default=None)
+    verified: bool | None = None
+    ready: bool | None = None
 
     def cleaned(self) -> dict[str, Any]:
         return self.model_dump(exclude_none=True)

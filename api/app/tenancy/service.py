@@ -11,7 +11,7 @@ from app.auth.service import ROLES, _load_live_session, normalize_email, user_pu
 from app.core.clock import utcnow
 from app.core.db import session_scope
 from app.events.service import add_event
-from app.tenancy.models import Hunt, HuntMember
+from app.tenancy.models import Hunt, HuntMember, MemberAgentGrant
 
 RANK = {"viewer": 1, "rater": 2, "owner": 3}
 Access = Literal["missing", "forbidden"]
@@ -39,6 +39,21 @@ def _member_public(member: HuntMember, user: User) -> dict[str, Any]:
         "role": member.role,
         "rater_label": member.rater_label,
     }
+
+
+def agent_allowlist(db: Session, user_id: str, hunt_id: str, *, is_admin: bool) -> set[str] | None:
+    if is_admin:
+        return None
+    member = db.get(HuntMember, (hunt_id, user_id))
+    if member is None or not member.agents_restricted:
+        return None
+    rows = db.scalars(
+        select(MemberAgentGrant.agent_id).where(
+            MemberAgentGrant.hunt_id == hunt_id,
+            MemberAgentGrant.user_id == user_id,
+        )
+    ).all()
+    return set(rows)
 
 
 def require_hunt(

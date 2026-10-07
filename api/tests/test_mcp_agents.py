@@ -42,7 +42,7 @@ def test_agent_script_and_mcp_client() -> None:
             "slug": "nyc-agents",
             "kind": "rental",
             "schema": "nyc-rental-v1",
-            "criteria": {"price_ceiling": 3000, "ri_price_ceiling": 4000},
+            "criteria": {"price_ceiling": 3000, "ri_price_ceiling": 4000, "price_ceiling_2br": 3200},
         },
     )
     assert hunt.status_code == 201, hunt.text
@@ -85,3 +85,58 @@ def test_agent_script_and_mcp_client() -> None:
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "still present" in completed.stdout
     assert "mcp posted" in completed.stdout
+
+
+def test_members_can_list_agents() -> None:
+    admin = _admin()
+    hunt = admin.post(
+        "/api/v1/hunts",
+        {
+            "name": "NYC · Agents",
+            "slug": "nyc-agent-list",
+            "kind": "rental",
+            "schema": "nyc-rental-v1",
+            "criteria": {"price_ceiling": 3000},
+        },
+    )
+    assert hunt.status_code == 201, hunt.text
+    hunt_id = hunt.json()["id"]
+    empty = admin.get(f"/api/v1/hunts/{hunt_id}/agents")
+    assert empty.status_code == 200, empty.text
+    assert empty.json()["agents"] == []
+
+    issued = admin.post(f"/api/v1/hunts/{hunt_id}/pairing-codes", {})
+    assert issued.status_code == 201, issued.text
+    paired = Client().post(
+        "/api/v1/agents/pair",
+        {"code": issued.json()["code"], "name": "hunt-nyc"},
+    )
+    assert paired.status_code == 201, paired.text
+    assert "token" in paired.json()
+
+    listed = admin.get(f"/api/v1/hunts/{hunt_id}/agents")
+    assert listed.status_code == 200, listed.text
+    agents = listed.json()["agents"]
+    assert len(agents) == 1
+    assert agents[0]["name"] == "hunt-nyc"
+    assert agents[0]["posts"] == 0
+    assert "token" not in agents[0]
+
+    invited = admin.post(
+        "/api/v1/auth/invites",
+        {"role": "owner", "email": "outsider-agents@example.com"},
+    )
+    assert invited.status_code == 201, invited.text
+    outsider = Client()
+    accepted = outsider.post(
+        "/api/v1/auth/invite/accept",
+        {
+            "token": invited.json()["token"],
+            "email": "outsider-agents@example.com",
+            "password": PASSWORD,
+            "display_name": "Outsider",
+        },
+    )
+    assert accepted.status_code == 200, accepted.text
+    missing = outsider.get(f"/api/v1/hunts/{hunt_id}/agents")
+    assert missing.status_code == 404, missing.text

@@ -15,6 +15,7 @@ from app.listings.service import (
     mark_checked,
     member_hunt_ids,
     patch_listing,
+    set_rating,
     set_status,
     stream_events,
     upsert_listing,
@@ -49,6 +50,11 @@ class StatusIn(BaseModel):
 
 class CommentIn(BaseModel):
     text: str
+
+
+class RatingIn(BaseModel):
+    stars: int | None = None
+    passed: bool = False
 
 
 def _token(request: Request) -> str | None:
@@ -130,6 +136,20 @@ def status(listing_id: str, body: StatusIn, request: Request) -> JSONResponse:
 def checked(listing_id: str, request: Request) -> JSONResponse:
     token = _token(request)
     result = mark_checked(token, client_ip(request), listing_id)
+    if isinstance(result, str):
+        return _access(result)
+    return JSONResponse(result)
+
+
+@router.put("/listings/{listing_id}/rating", response_model=None)
+def rate(listing_id: str, body: RatingIn, request: Request) -> JSONResponse:
+    result = set_rating(
+        _token(request),
+        client_ip(request),
+        listing_id,
+        stars=body.stars,
+        passed=body.passed,
+    )
     if isinstance(result, str):
         return _access(result)
     return JSONResponse(result)

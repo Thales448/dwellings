@@ -58,10 +58,11 @@ def apply_security_headers(response: Response) -> None:
     settings = get_settings()
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' https://fonts.googleapis.com; "
         "style-src-attr 'unsafe-inline'; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: https://tile.openstreetmap.org; "
         "connect-src 'self'; "
         "frame-ancestors 'none'; "
         "base-uri 'self'; "

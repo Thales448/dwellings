@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.clock import utcnow
@@ -35,3 +35,18 @@ class HuntMember(Base):
     )
     role: Mapped[str] = mapped_column(String(16))
     rater_label: Mapped[str] = mapped_column(String(80))
+    agents_restricted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class MemberAgentGrant(Base):
+    __tablename__ = "member_agent_grants"
+
+    hunt_id: Mapped[str] = mapped_column(
+        ForeignKey("hunts.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    agent_id: Mapped[str] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
+    )

@@ -33,7 +33,7 @@ class Listing(Base):
     external_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     url: Mapped[str] = mapped_column(String(1000))
     source: Mapped[str] = mapped_column(String(40), default="unknown")
-    title: Mapped[str] = mapped_column(String(60))
+    title: Mapped[str] = mapped_column(String(140))
     status: Mapped[str] = mapped_column(String(16), default="new", index=True)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -65,11 +65,28 @@ class Listing(Base):
     scam_notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     scam_risk: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_presentable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    link_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    link_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    link_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     days_on_market: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attrs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_by_agent: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Rating(Base):
+    __tablename__ = "ratings"
+    __table_args__ = (UniqueConstraint("listing_id", "user_id", name="uq_ratings_listing_user"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    listing_id: Mapped[str] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    stars: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

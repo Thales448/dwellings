@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
@@ -13,12 +14,14 @@ from webauthn import (
     verify_authentication_response,
     verify_registration_response,
 )
-from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, encode_cbor, parse_cbor
 from webauthn.helpers.exceptions import (
     InvalidAuthenticationResponse,
     InvalidRegistrationResponse,
 )
 from webauthn.helpers.structs import (
+    AttestationConveyancePreference,
+    AuthenticatorAttachment,
     AuthenticatorSelectionCriteria,
     CredentialDeviceType,
     PublicKeyCredentialDescriptor,
@@ -42,6 +45,38 @@ from app.events.service import add_event
 
 CHALLENGE_TTL = timedelta(minutes=5)
 PasskeyError = Literal["unauthenticated", "stale", "invalid", "missing", "last"]
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PasskeyRejected:
+    detail: str
+
+
+def _prepare_credential(credential: dict[str, Any]) -> dict[str, Any]:
+    prepared = dict(credential)
+    raw_id = prepared.get("rawId")
+    if isinstance(raw_id, str):
+        prepared["id"] = bytes_to_base64url(base64url_to_bytes(raw_id))
+    response = prepared.get("response")
+    if not isinstance(response, dict):
+        return prepared
+    attestation = response.get("attestationObject")
+    if not isinstance(attestation, str):
+        return prepared
+    try:
+        decoded = parse_cbor(base64url_to_bytes(attestation))
+    except Exception:
+        return prepared
+    if not isinstance(decoded, dict) or decoded.get("fmt") == "none":
+        return prepared
+    if "authData" not in decoded:
+        return prepared
+    rewritten = {"fmt": "none", "attStmt": {}, "authData": decoded["authData"]}
+    response = dict(response)
+    response["attestationObject"] = bytes_to_base64url(encode_cbor(rewritten))
+    prepared["response"] = response
+    return prepared
 
 
 @dataclass
@@ -98,9 +133,11 @@ def registration_options(
         user_display_name=display_name,
         user_id=user_id.encode(),
         challenge=challenge,
+        attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.REQUIRED,
+            authenticator_attachment=AuthenticatorAttachment.PLATFORM,
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.PREFERRED,
         ),
         exclude_credentials=exclude,
     )
@@ -114,7 +151,7 @@ def registration_verify(
     challenge_id: str,
     credential: dict[str, Any],
     nickname: str,
-) -> dict[str, Any] | PasskeyError:
+) -> dict[str, Any] | PasskeyError | PasskeyRejected:
     label = nickname.strip()[:80]
     if not label:
         return "invalid"
@@ -131,14 +168,15 @@ def registration_verify(
             return "invalid"
         try:
             verified = verify_registration_response(
-                credential=credential,
+                credential=_prepare_credential(credential),
                 expected_challenge=base64url_to_bytes(challenge),
                 expected_rp_id=settings.webauthn_rp_id,
                 expected_origin=settings.public_url.rstrip("/"),
-                require_user_verification=True,
+                require_user_verification=False,
             )
-        except InvalidRegistrationResponse:
-            return "invalid"
+        except InvalidRegistrationResponse as exc:
+            logger.warning("passkey registration rejected: %s", exc)
+            return PasskeyRejected(str(exc))
         transports = credential.get("response", {}).get("transports")
         stored = WebAuthnCredential(
             id=bytes_to_base64url(verified.credential_id),
@@ -170,7 +208,7 @@ def authentication_options() -> dict[str, Any]:
     options = generate_authentication_options(
         rp_id=settings.webauthn_rp_id,
         challenge=challenge,
-        user_verification=UserVerificationRequirement.REQUIRED,
+        user_verification=UserVerificationRequirement.PREFERRED,
     )
     return _options_payload(challenge, options, user_id=None, kind="authenticate")
 
@@ -188,6 +226,7 @@ def authentication_verify(
         challenge = _take_challenge(db, challenge_id, kind="authenticate", user_id=None)
         if challenge is None:
             return "invalid"
+        credential = _prepare_credential(credential)
         cred_id = credential.get("id")
         if not isinstance(cred_id, str):
             return "invalid"
@@ -202,7 +241,7 @@ def authentication_verify(
                 expected_origin=settings.public_url.rstrip("/"),
                 credential_public_key=base64url_to_bytes(stored.public_key),
                 credential_current_sign_count=stored.sign_count,
-                require_user_verification=True,
+                require_user_verification=False,
             )
         except InvalidAuthenticationResponse:
             return "invalid"
@@ -301,9 +340,9 @@ def delete_credential(token: str, ip: str, credential_id: str) -> PasskeyError |
         if stored is None or stored.user_id != user.id:
             return "missing"
         count = db.scalar(
-            select(func.count()).select_from(WebAuthnCredential).where(
-                WebAuthnCredential.user_id == user.id
-            )
+            select(func.count())
+            .select_from(WebAuthnCredential)
+            .where(WebAuthnCredential.user_id == user.id)
         )
         if user.password_hash is None and (count or 0) <= 1:
             return "last"

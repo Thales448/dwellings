@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from app.auth.passkeys import (
+    PasskeyRejected,
     PasskeyStepUp,
     authentication_options,
     authentication_verify,
@@ -81,6 +82,8 @@ def register_verify(body: VerifyRegistrationIn, request: Request) -> JSONRespons
         credential=body.credential,
         nickname=body.nickname,
     )
+    if isinstance(result, PasskeyRejected):
+        return JSONResponse({"detail": result.detail}, status_code=400)
     if isinstance(result, str):
         return _error(result)
     return JSONResponse(result, status_code=201)

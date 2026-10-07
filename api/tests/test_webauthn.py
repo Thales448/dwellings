@@ -3,8 +3,10 @@ from datetime import timedelta
 from sqlalchemy import select
 from tests.test_auth import PASSWORD, Client
 from tests.virtual_authenticator import VirtualAuthenticator
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, encode_cbor, parse_cbor
 
 from app.auth.models import SessionRow, User, WebAuthnCredential
+from app.auth.passkeys import _prepare_credential
 from app.core.clock import utcnow
 from app.core.db import session_scope
 
@@ -55,6 +57,37 @@ def _register(client: Client, authenticator: VirtualAuthenticator, nickname: str
     )
     assert verified.status_code == 201, verified.text
     return str(verified.json()["id"])
+
+
+def test_phone_attestation_is_ignored() -> None:
+    auth_data = b"\x00" * 37
+    packed = bytes_to_base64url(
+        encode_cbor({"fmt": "packed", "attStmt": {"sig": b"abc"}, "authData": auth_data})
+    )
+    prepared = _prepare_credential(
+        {"id": "aa==", "rawId": "aa", "response": {"attestationObject": packed}}
+    )
+    decoded = parse_cbor(base64url_to_bytes(prepared["response"]["attestationObject"]))
+    assert prepared["id"] == bytes_to_base64url(base64url_to_bytes("aa=="))
+    assert decoded["fmt"] == "none"
+    assert decoded["attStmt"] == {}
+    assert decoded["authData"] == auth_data
+
+
+def test_registration_options_ask_iphone_for_face_id() -> None:
+    client = _admin()
+    options = client.post("/api/v1/auth/passkey/register/options", {})
+    assert options.status_code == 200, options.text
+    body = options.json()["options"]
+    selection = body["authenticatorSelection"]
+    assert selection["authenticatorAttachment"] == "platform"
+    assert selection["residentKey"] == "required"
+    assert selection["requireResidentKey"] is True
+    assert selection["userVerification"] == "preferred"
+    assert body["attestation"] == "none"
+    algorithms = {item["alg"] for item in body["pubKeyCredParams"]}
+    assert -7 in algorithms
+    assert -257 in algorithms
 
 
 def test_virtual_authenticator_registers_and_signs_in() -> None:

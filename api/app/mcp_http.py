@@ -19,8 +19,16 @@ from app.listings.service import (
 )
 
 GUIDE = (
-    "Title guide: 60 characters maximum, a human title, never a raw address. "
-    "Never delete a listing: set status to dead and keep the row."
+    "The url must be the Craigslist posting link, not a search page. "
+    "Example: https://newyork.craigslist.org/que/apa/d/sunnyside-bright-1br/1234567890.html. "
+    "The title must be the Craigslist posting title, at most 140 characters. "
+    "notes must be the Craigslist posting description, the same words. "
+    "The server opens that link and hides the listing until the title and description match "
+    "and the post is still up. Never delete a listing: set status to dead and keep the row. "
+    "Send address, lat, and lng so the deck can place it. "
+    "Send photos as real image URLs of the unit, not a generated picture. "
+    "Set attrs.verified to true only after you have checked the listing yourself. "
+    "Set attrs.ready to true only when the description, address, map point, and photos are present."
 )
 
 server = MCPServer("dwellings")

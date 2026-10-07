@@ -25,7 +25,7 @@ from app.listings.normalize import (
     UNIT_KINDS,
 )
 from app.tenancy.models import Hunt
-from app.tenancy.service import require_hunt
+from app.tenancy.service import agent_allowlist, require_hunt
 
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 TOOLS = (
@@ -225,24 +225,49 @@ def manifest(ip: str) -> dict[str, Any] | Error:
                 "scam_risk": sorted(SCAM),
             },
             "title_guide": {
-                "max_characters": 60,
+                "max_characters": 140,
                 "rules": [
-                    "Write a human title.",
-                    "Never use a raw address.",
+                    "Use the Craigslist posting title.",
+                    "Use the Craigslist posting description as notes, the same words.",
+                    "Use the posting link, not a search page.",
                 ],
-                "examples": ["Elevator one-bed by the 7 in Sunnyside"],
+                "examples": [
+                    "https://newyork.craigslist.org/que/apa/d/sunnyside-bright-1br/1234567890.html"
+                ],
             },
             "rules": {
                 "never_delete": (
                     "Never delete a listing. DELETE sets status dead and keeps the row. "
                     "Hard delete is admin-only with ?hard=true."
                 ),
+                "photos": (
+                    "Send photos as [{url, caption, shows_kitchen}] on each listing. "
+                    "The server copies them and keeps the copies after the listing is dead. "
+                    "Send the real gallery, not a generated picture and not only the page preview. "
+                    "If you send none, the server tries the page's preview image."
+                ),
+                "description_verified_ready": (
+                    "notes is the Craigslist posting description, copied as written. "
+                    "address, lat, and lng are required so the deck can show a map. "
+                    "attrs.verified is true only after you have checked the listing yourself. "
+                    "attrs.ready is true only when the description, address, "
+                    "map point, and photos are present."
+                ),
+                "craigslist": (
+                    "For nyc-rental-v1 the url must be one Craigslist posting, "
+                    "https://{city}.craigslist.org/{area}/{apa|abo}/d/{slug}/{id}.html. "
+                    "The server fetches that page. The listing stays hidden until the link "
+                    "opens, the post is still up, the title matches the posting title, "
+                    "and notes matches the posting description."
+                ),
                 "presentable": (
-                    "For nyc-rental-v1, a listing is presentable only when status is "
-                    "new, alive, or watching, listing_type is couple, unit_kind is "
-                    "full_studio or full_1br, it is not demoted, scam_risk is not high, "
-                    "unavailable_date is empty, geo_bucket is not out_of_scope, and "
-                    "price is within the hunt ceiling (Roosevelt Island may stretch)."
+                    "For nyc-rental-v1, a listing is presentable only when that Craigslist "
+                    "check passed, status is new, alive, or watching, listing_type is couple, "
+                    "unit_kind is full_studio or full_1br (price ≤ criteria.price_ceiling, "
+                    "Roosevelt Island may stretch to criteria.ri_price_ceiling for those kinds "
+                    "only) or full_2br_plus (price ≤ criteria.price_ceiling_2br; the RI stretch "
+                    "does not apply to 2BRs), it is not demoted, scam_risk is not high, "
+                    "unavailable_date is empty, and geo_bucket is not out_of_scope."
                 ),
             },
             "rate_limits": {"pairing_attempts": 5, "bulk_max": 200},
@@ -314,8 +339,11 @@ def list_agents(token: str | None, ip: str, hunt_id: str) -> list[dict[str, Any]
         from app.listings.models import Listing
 
         rows = db.scalars(select(Agent).where(Agent.hunt_id == hunt_id)).all()
+        allowed = agent_allowlist(db, user.id, hunt_id, is_admin=user.is_admin)
         public: list[dict[str, Any]] = []
         for agent in rows:
+            if allowed is not None and agent.id not in allowed:
+                continue
             count = db.scalar(
                 select(func.count())
                 .select_from(Listing)

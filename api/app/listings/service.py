@@ -16,7 +16,8 @@ from app.events.models import Event
 from app.events.service import add_event
 from app.jobs.models import Job
 from app.listings.attrs import validate_attrs
-from app.listings.models import Comment, Listing
+from app.listings.craigslist import NOTES_MAX, TITLE_MAX
+from app.listings.models import Comment, Listing, Rating
 from app.listings.normalize import (
     ACTIVE,
     ADDRESS_PRECISION,
@@ -31,8 +32,9 @@ from app.listings.normalize import (
 )
 from app.listings.presentable import presentable
 from app.listings.stream import hub
+from app.photos.present import photos_by_listing
 from app.tenancy.models import Hunt, HuntMember
-from app.tenancy.service import require_hunt
+from app.tenancy.service import agent_allowlist, require_hunt
 
 Error = str
 SORTS = {"hunt_score", "predicted", "combined", "newest", "price"}
@@ -79,7 +81,16 @@ def _open_hunt(db: Session, actor: Actor, hunt_id: str, role: str, scope: str) -
     return hunt
 
 
-def _public(row: Listing) -> dict[str, Any]:
+def _listing_visible(db: Session, actor: Actor, row: Listing) -> bool:
+    if actor.kind != "user":
+        return True
+    allowed = agent_allowlist(db, actor.id, row.hunt_id, is_admin=actor.is_admin)
+    if allowed is None or row.created_by_agent is None:
+        return True
+    return row.created_by_agent in allowed
+
+
+def _public(row: Listing, photos: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
         "id": row.id,
         "hunt_id": row.hunt_id,
@@ -120,21 +131,52 @@ def _public(row: Listing) -> dict[str, Any]:
         "scam_risk": row.scam_risk,
         "is_presentable": row.is_presentable,
         "presentable": row.is_presentable,
+        "link_check": {
+            "ok": bool(row.link_ok),
+            "error": row.link_error,
+            "checked_at": row.link_checked_at.isoformat() if row.link_checked_at else None,
+        },
         "source_snapshot": row.source_snapshot,
         "days_on_market": row.days_on_market,
         "attrs": row.attrs,
         "created_by_agent": row.created_by_agent,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
-        "photos": [],
+        "photos": photos or [],
         "ratings": [],
+        "my_rating": None,
         "comments": [],
         "events": [],
     }
 
 
+def _rating_public(row: Rating | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {"stars": row.stars, "passed": row.passed}
+
+
+def _ratings_for(db: Session, user_id: str, listing_ids: list[str]) -> dict[str, Rating]:
+    if not listing_ids:
+        return {}
+    rows = db.scalars(
+        select(Rating).where(Rating.user_id == user_id, Rating.listing_id.in_(listing_ids))
+    ).all()
+    return {row.listing_id: row for row in rows}
+
+
+def _stamp_ratings(
+    db: Session, actor: Actor, rows: list[Listing], bodies: list[dict[str, Any]]
+) -> None:
+    if actor.kind != "user":
+        return
+    found = _ratings_for(db, actor.id, [row.id for row in rows])
+    for row, body in zip(rows, bodies, strict=True):
+        body["my_rating"] = _rating_public(found.get(row.id))
+
+
 def _detail(db: Session, row: Listing) -> dict[str, Any]:
-    body = _public(row)
+    body = _public(row, photos_by_listing(db, [row.id]).get(row.id, []))
     events = db.scalars(
         select(Event).where(Event.listing_id == row.id).order_by(Event.at.desc()).limit(50)
     ).all()
@@ -164,6 +206,19 @@ def _detail(db: Session, row: Listing) -> dict[str, Any]:
         for note in notes
     ]
     return body
+
+
+def _reset_link(row: Listing, hunt: Hunt) -> None:
+    if hunt.schema_id != "nyc-rental-v1":
+        return
+    row.link_ok = False
+    row.link_error = None
+    row.link_checked_at = None
+    snap = dict(row.source_snapshot or {})
+    snap.setdefault("title", row.title)
+    snap.setdefault("price", row.price)
+    snap["craigslist"] = {"ok": False, "error": "not checked yet"}
+    row.source_snapshot = snap
 
 
 def _enqueue(db: Session, kind: str, payload: dict[str, Any]) -> None:
@@ -196,7 +251,7 @@ def _apply_status(row: Listing, status: str, reason: str | None) -> str | None:
 def _assign(row: Listing, body: dict[str, Any], *, creating: bool) -> str | None:
     if "title" in body or creating:
         title = str(body.get("title", row.title if not creating else "")).strip()
-        if not title or len(title) > 60:
+        if not title or len(title) > TITLE_MAX:
             return "invalid"
         row.title = title
     if "price" in body or creating:
@@ -241,13 +296,14 @@ def _assign(row: Listing, body: dict[str, Any], *, creating: bool) -> str | None
         "neighborhood",
         "borough_or_city",
         "geo_bucket",
-        "notes",
         "scam_notes",
         "address",
         "external_id",
     ):
         if key in body and body[key] is not None:
             setattr(row, key, str(body[key])[:200])
+    if "notes" in body and body["notes"] is not None:
+        row.notes = str(body["notes"])[:NOTES_MAX]
     for key in ("baths", "price_per_person", "lat", "lng", "hunt_score"):
         if key in body and body[key] is not None:
             try:
@@ -344,6 +400,7 @@ def _write_saved(
         row.demoted = bool(row.demoted)
         row.attrs = attrs
         row.source_snapshot = {"title": row.title, "price": row.price}
+        _reset_link(row, hunt)
         if actor.kind == "agent":
             row.created_by_agent = actor.id
         row.is_presentable = presentable(hunt, row)
@@ -372,6 +429,7 @@ def _write_saved(
             row.attrs = attrs
         row.last_seen = now
         row.updated_at = now
+        _reset_link(row, hunt)
         row.is_presentable = presentable(hunt, row)
         db.flush()
         event_type = "listing.updated"
@@ -395,6 +453,8 @@ def _write_saved(
         return "invalid"
     _enqueue(db, "photo", {"listing_id": row.id, "hunt_id": hunt.id, "photos": photos})
     _enqueue(db, "scam", {"listing_id": row.id, "hunt_id": hunt.id})
+    if hunt.schema_id == "nyc-rental-v1":
+        _enqueue(db, "verify", {"listing_id": row.id, "hunt_id": hunt.id})
     add_event(
         db,
         type=event_type,
@@ -506,7 +566,10 @@ def patch_listing(
             db.rollback()
             return "invalid"
         row.updated_at = utcnow()
+        _reset_link(row, hunt)
         row.is_presentable = presentable(hunt, row)
+        if hunt.schema_id == "nyc-rental-v1":
+            _enqueue(db, "verify", {"listing_id": row.id, "hunt_id": hunt.id})
         if previous != row.price:
             add_event(
                 db,
@@ -670,6 +733,86 @@ def mark_checked(token: str | None, ip: str, listing_id: str) -> dict[str, Any] 
         return {"listing": _public(row)}
 
 
+def _rating_filter(stmt: Any, actor: Actor, query: dict[str, str]) -> Any:
+    if actor.kind != "user":
+        asked = query.get("min_stars") or query.get("passed") == "true"
+        if asked or query.get("unrated") == "true":
+            return "invalid"
+        return stmt
+    mine = and_(Rating.listing_id == Listing.id, Rating.user_id == actor.id)
+    if query.get("passed") == "true":
+        return stmt.join(Rating, mine).where(Rating.passed.is_(True))
+    raw = query.get("min_stars")
+    if raw:
+        try:
+            floor = int(raw)
+        except ValueError:
+            return "invalid"
+        if floor < 1:
+            return "invalid"
+        return stmt.join(Rating, mine).where(Rating.passed.is_(False), Rating.stars >= floor)
+    if query.get("unrated") == "true":
+        return stmt.outerjoin(Rating, mine).where(Rating.id.is_(None))
+    return stmt
+
+
+def set_rating(
+    token: str | None,
+    ip: str,
+    listing_id: str,
+    *,
+    stars: int | None,
+    passed: bool,
+) -> dict[str, Any] | Error:
+    with session_scope() as db:
+        actor = _actor(db, token, ip)
+        if actor is None:
+            return "unauthenticated"
+        if actor.kind != "user":
+            return "forbidden"
+        row = db.get(Listing, listing_id)
+        if row is None:
+            return "missing"
+        opened = _open_hunt(db, actor, row.hunt_id, "rater", "listings:read")
+        if isinstance(opened, str):
+            return opened
+        if not _listing_visible(db, actor, row):
+            return "missing"
+        scale = opened.rating_scale
+        if passed:
+            stars = None
+        elif stars is None or stars < 1 or stars > scale:
+            return "invalid"
+        existing = db.scalar(
+            select(Rating).where(Rating.listing_id == row.id, Rating.user_id == actor.id)
+        )
+        now = utcnow()
+        if existing is None:
+            existing = Rating(
+                listing_id=row.id,
+                user_id=actor.id,
+                stars=stars,
+                passed=passed,
+                updated_at=now,
+            )
+            db.add(existing)
+        else:
+            existing.stars = stars
+            existing.passed = passed
+            existing.updated_at = now
+        add_event(
+            db,
+            type="listing.rated",
+            actor_type="user",
+            actor_id=actor.id,
+            hunt_id=row.hunt_id,
+            listing_id=row.id,
+            payload={"stars": stars, "passed": passed},
+        )
+        db.flush()
+        return {"stars": existing.stars, "passed": existing.passed}
+
+
 def _cursor(row: Listing, sort: str) -> str:
     if sort == "price":
         value = str(row.price)
@@ -718,8 +861,28 @@ def list_listings(
             stmt = stmt.where(Listing.price <= float(query["max_price"]))
         if query.get("q"):
             stmt = stmt.where(Listing.title.ilike(f"%{query['q']}%"))
+        if actor.kind == "user":
+            allowed = agent_allowlist(db, actor.id, hunt_id, is_admin=actor.is_admin)
+            if allowed is not None:
+                if allowed:
+                    stmt = stmt.where(
+                        or_(
+                            Listing.created_by_agent.is_(None),
+                            Listing.created_by_agent.in_(allowed),
+                        )
+                    )
+                else:
+                    stmt = stmt.where(Listing.created_by_agent.is_(None))
         if query.get("flag"):
             stmt = stmt.where(cast(Listing.honesty_flags, String).contains(f'"{query["flag"]}"'))
+        if query.get("link_ok") == "false":
+            stmt = stmt.where(Listing.link_ok.is_(False))
+        elif query.get("link_ok") == "true":
+            stmt = stmt.where(Listing.link_ok.is_(True))
+        rated = _rating_filter(stmt, actor, query)
+        if rated == "invalid":
+            return "invalid"
+        stmt = rated
         cursor = query.get("cursor")
         if cursor:
             decoded = _decode_cursor(cursor)
@@ -762,7 +925,13 @@ def list_listings(
         rows = list(db.scalars(stmt.limit(limit + 1)).all())
         page = rows[:limit]
         next_cursor = _cursor(page[-1], order_sort) if len(rows) > limit and page else None
-        return {"listings": [_public(row) for row in page], "next_cursor": next_cursor}
+        grouped = photos_by_listing(db, [row.id for row in page])
+        bodies = [_public(row, grouped.get(row.id, [])) for row in page]
+        _stamp_ratings(db, actor, page, bodies)
+        return {
+            "listings": bodies,
+            "next_cursor": next_cursor,
+        }
 
 
 def get_listing(
@@ -793,7 +962,11 @@ def get_listing(
         opened = _open_hunt(db, actor, row.hunt_id, "viewer", "listings:read")
         if isinstance(opened, str):
             return opened
-        return _detail(db, row)
+        if not _listing_visible(db, actor, row):
+            return "missing"
+        body = _detail(db, row)
+        _stamp_ratings(db, actor, [row], [body])
+        return body
 
 
 def add_comment(
@@ -816,6 +989,8 @@ def add_comment(
             opened = _open_hunt(db, actor, row.hunt_id, "viewer", "listings:read")
             if isinstance(opened, str):
                 return opened
+            if not _listing_visible(db, actor, row):
+                return "missing"
         note = Comment(
             listing_id=row.id,
             author_user_id=actor.id if actor.kind == "user" else None,
