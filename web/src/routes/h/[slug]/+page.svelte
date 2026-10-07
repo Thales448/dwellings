@@ -169,12 +169,12 @@
 			<div class="queue">
 				{#each floored as listing, itemIndex (listing.id)}
 					{@const tag = queueTag(listing)}
+					{@const cover = coverPhoto(listing)}
 					<button
 						type="button"
 						class:selected={itemIndex === index}
 						onclick={() => (index = itemIndex)}
 					>
-						{@const cover = coverPhoto(listing)}
 						<div class="thumb" style:background={tone(listing.short_id)}>
 							{#if cover}
 								<img src={cover.thumb} alt="" loading="lazy" />

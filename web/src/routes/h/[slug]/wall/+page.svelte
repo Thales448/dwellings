@@ -109,8 +109,8 @@
 			<div class="col">
 				{#each column as listing (listing.id)}
 					{@const tag = queueTag(listing)}
+					{@const cover = coverPhoto(listing)}
 					<a class="card" href="/h/{slug}">
-						{@const cover = coverPhoto(listing)}
 						<div class="photo" style:background={tone(listing.short_id)} style:height={listing.short_id % 2 ? '280px' : '220px'}>
 							{#if cover}
 								<img class="cover" src={cover.thumb} alt="" loading="lazy" />
