@@ -9,7 +9,7 @@ from app.agents.auth import SCOPES, mac
 from app.agents.models import Agent, PairingCode
 from app.auth.models import LoginThrottle
 from app.auth.service import _load_live_session
-from app.core.clock import as_utc, utcnow
+from app.core.clock import as_utc, iso_utc, utcnow
 from app.core.config import get_settings
 from app.core.db import session_scope
 from app.core.request_ctx import current_authorization
